@@ -636,6 +636,7 @@ function renderControles() {
           respOptions +
         '</select>' +
         '<button class="pillbtn cond" id="btn-categorias" style="display:flex;align-items:center;gap:6px">' + icon("tag", 14) + ' Categorías</button>' +
+        '<button class="pillbtn cond" id="btn-diagnostico" style="display:flex;align-items:center;gap:6px" title="Estado del modo sin internet">📶 Offline</button>' +
         '<button class="btn-primary cond" id="btn-nuevo-evento">' + icon("plus", 15) + ' Nuevo evento</button>' +
       '</div>' +
     '</div>'
@@ -1014,6 +1015,49 @@ function renderModalCompletadas() {
   );
 }
 
+function renderModalDiagnostico() {
+  const sw = window.swEstado || {};
+  const filas = [
+    { label: "Service Worker soportado por este navegador", ok: sw.soportado },
+    { label: "Service Worker registrado correctamente", ok: sw.registrado },
+    { label: "Página guardada en caché para uso sin internet", ok: sw.cacheado },
+  ];
+  const filasHtml = filas.map(function (f) {
+    const icono = f.ok ? "✅" : "❌";
+    const color = f.ok ? "#5FE3A1" : "#E0524A";
+    return '<div class="cond" style="display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid #1E3247">' +
+      '<span style="font-size:16px">' + icono + '</span>' +
+      '<span style="font-size:13.5px;color:' + (f.ok ? "#C9D2DA" : color) + '">' + f.label + '</span>' +
+    '</div>';
+  }).join("");
+
+  const errorHtml = sw.error
+    ? '<div class="cond" style="margin-top:12px;padding:10px;border-radius:7px;background:rgba(224,82,74,0.1);border:1px solid #E0524A;color:#E0524A;font-size:12.5px">' + escapeHTML(sw.error) + '</div>'
+    : '';
+
+  const todoOk = sw.soportado && sw.registrado && sw.cacheado;
+  const resumenHtml = todoOk
+    ? '<div class="cond" style="margin-top:12px;padding:10px;border-radius:7px;background:rgba(95,227,161,0.1);border:1px solid #5FE3A1;color:#5FE3A1;font-size:13px;text-align:center;font-weight:600">✅ Listo — la app debería funcionar sin internet</div>'
+    : '<div class="cond" style="margin-top:12px;padding:10px;border-radius:7px;background:rgba(217,154,61,0.1);border:1px solid #D99A3D;color:#D99A3D;font-size:13px;text-align:center;font-weight:600">⚠ Aún no está lista para modo sin internet</div>';
+
+  return (
+    '<div class="overlay" id="overlay-diagnostico">' +
+      '<div class="modal" style="max-width:380px">' +
+        '<div class="modal-head">' +
+          '<div class="modal-title mono">MODO SIN INTERNET</div>' +
+          '<button class="iconbtn" data-action="cerrar-modal">' + icon("x", 16) + '</button>' +
+        '</div>' +
+        '<div>' + filasHtml + '</div>' +
+        errorHtml +
+        resumenHtml +
+        '<button class="cond" id="btn-reintentar-cache" style="margin-top:14px;width:100%;padding:10px;border-radius:7px;border:1px solid #2A3F54;background:transparent;color:#C9D2DA;font-size:13px;cursor:pointer">Reintentar guardado en caché</button>' +
+        '<div class="cond" style="margin-top:10px;font-size:11px;color:#5C7184;line-height:1.5">Si el primer recuadro está en rojo (❌), abre esta página con internet activo, espera a que el segundo y tercer recuadro se pongan en verde, y luego vuelve a intentar sin conexión.</div>' +
+      '</div>' +
+    '</div>'
+  );
+}
+
+
 function renderModalConfirmarEliminar() {
   const ev = state.eventos.find(function (e) { return e.id === state.eliminarPendienteId; });
   const titulo = ev ? ev.titulo : "este evento";
@@ -1049,6 +1093,7 @@ function render() {
   else if (state.modal === "categorias") modalHtml = renderModalCategorias();
   else if (state.modal === "detalleDia") modalHtml = renderModalDetalleDia();
   else if (state.modal === "completadas") modalHtml = renderModalCompletadas();
+  else if (state.modal === "diagnostico") modalHtml = renderModalDiagnostico();
 
   const confirmHtml = state.eliminarPendienteId ? renderModalConfirmarEliminar() : "";
 
@@ -1107,6 +1152,8 @@ function bindEvents() {
   if (btnCategorias) btnCategorias.onclick = function () { state.modal = "categorias"; render(); };
   const btnCompletadas = document.getElementById("btn-completadas");
   if (btnCompletadas) btnCompletadas.onclick = function () { state.modal = "completadas"; render(); };
+  const btnDiagnostico = document.getElementById("btn-diagnostico");
+  if (btnDiagnostico) btnDiagnostico.onclick = function () { state.modal = "diagnostico"; render(); };
   const btnNuevoEvento = document.getElementById("btn-nuevo-evento");
   if (btnNuevoEvento) btnNuevoEvento.onclick = function () { abrirNuevo(fmtISO(new Date())); };
   const btnMoverTodos = document.getElementById("btn-mover-todos");
@@ -1169,7 +1216,7 @@ function bindEvents() {
   });
 
   // Cerrar overlay al tocar el fondo (no el modal)
-  ["overlay-evento", "overlay-categorias", "overlay-detalle-dia", "overlay-completadas"].forEach(function (oid) {
+  ["overlay-evento", "overlay-categorias", "overlay-detalle-dia", "overlay-completadas", "overlay-diagnostico"].forEach(function (oid) {
     const overlay = document.getElementById(oid);
     if (overlay) {
       overlay.onclick = function (e) { if (e.target === overlay) cerrarModal(); };
@@ -1339,6 +1386,41 @@ function bindEvents() {
       };
     }
   }
+
+  /* ---------- Modal diagnóstico (modo sin internet) ---------- */
+  if (state.modal === "diagnostico") {
+    const btnReintentar = document.getElementById("btn-reintentar-cache");
+    if (btnReintentar) {
+      btnReintentar.onclick = function () {
+        btnReintentar.textContent = "Guardando…";
+        if (!("serviceWorker" in navigator) || !("caches" in window)) {
+          window.swEstado.error = "Este navegador no soporta caché offline.";
+          render();
+          return;
+        }
+        navigator.serviceWorker.register("./sw.js", { scope: "./" }).then(function (reg) {
+          window.swEstado.registrado = true;
+          return reg.update();
+        }).then(function () {
+          return caches.open("bitacora-operativa-v1");
+        }).then(function (cache) {
+          return Promise.all([
+            cache.add(window.location.href),
+            cache.add(new URL("./index.html", window.location.href).href),
+            cache.add(new URL("./manifest.json", window.location.href).href),
+            cache.add(new URL("./sw.js", window.location.href).href),
+          ]);
+        }).then(function () {
+          window.swEstado.cacheado = true;
+          window.swEstado.error = null;
+          render();
+        }).catch(function (err) {
+          window.swEstado.error = "Error al reintentar: " + err.message;
+          render();
+        });
+      };
+    }
+  }
 }
 
 function renderRespSelectOnly(selected) {
@@ -1376,16 +1458,35 @@ render();
    Registrado desde un archivo sw.js propio (no Blob), que es el método
    estándar y confiable, incluyendo en Safari/iOS 16.4+.
    La ruta es relativa para funcionar correctamente bajo la subcarpeta
-   de GitHub Pages (https://usuario.github.io/nombre-repo/). */
+   de GitHub Pages (https://usuario.github.io/nombre-repo/).
+   Se registra inmediatamente (sin esperar "load") y se expone su estado
+   en window.swEstado para poder verificarlo desde la propia interfaz. */
+window.swEstado = { soportado: false, registrado: false, cacheado: false, error: null };
+
 if ("serviceWorker" in navigator) {
-  window.addEventListener("load", function () {
-    navigator.serviceWorker.register("./sw.js").then(function (reg) {
-      console.log("Service Worker registrado, scope:", reg.scope);
-    }).catch(function (err) {
-      console.log("No se pudo registrar el Service Worker:", err);
-      // La app sigue funcionando normalmente, solo sin caché offline garantizada.
-    });
+  window.swEstado.soportado = true;
+  navigator.serviceWorker.register("./sw.js", { scope: "./" }).then(function (reg) {
+    window.swEstado.registrado = true;
+    // Forzar el cacheo explícito de la página actual completa (URL absoluta),
+    // como refuerzo adicional al cache.addAll() que ya hace sw.js en su evento "install".
+    if ("caches" in window) {
+      caches.open("bitacora-operativa-v1").then(function (cache) {
+        return Promise.all([
+          cache.add(window.location.href),
+          cache.add(new URL("./index.html", window.location.href).href),
+          cache.add(new URL("./manifest.json", window.location.href).href),
+        ]);
+      }).then(function () {
+        window.swEstado.cacheado = true;
+      }).catch(function (err) {
+        window.swEstado.error = "Error al cachear: " + err.message;
+      });
+    }
+  }).catch(function (err) {
+    window.swEstado.error = "Error al registrar: " + err.message;
   });
+} else {
+  window.swEstado.error = "Este navegador no soporta Service Workers.";
 }
 </script>
 </body>
