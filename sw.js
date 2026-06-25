@@ -36,13 +36,30 @@ self.addEventListener("activate", function (event) {
 });
 
 self.addEventListener("fetch", function (event) {
-  // Solo nos interesa cachear/responder peticiones GET de navegación y del propio documento.
   if (event.request.method !== "GET") return;
 
+  // Peticiones de NAVEGACIÓN (abrir la app desde el ícono, recargar, etc.):
+  // responder INMEDIATO desde caché si existe, sin esperar nunca a la red.
+  // Esto es lo que evita la pantalla de error nativa de iOS sin conexión.
+  if (event.request.mode === "navigate") {
+    event.respondWith(
+      caches.match("./index.html").then(function (cached) {
+        if (cached) return cached;
+        // Sin nada cacheado todavía: como último recurso, intentar la red.
+        return fetch(event.request).catch(function () {
+          return new Response(
+            "<h1>Sin conexión y sin caché disponible todavía.</h1><p>Abre la app una vez con internet para guardarla.</p>",
+            { headers: { "Content-Type": "text/html; charset=utf-8" } }
+          );
+        });
+      })
+    );
+    return;
+  }
+
+  // Resto de peticiones (CSS/JS/manifest/etc.): cache-first con actualización en segundo plano.
   event.respondWith(
     caches.match(event.request).then(function (cachedResponse) {
-      // Estrategia "cache first, network update in background": responde rápido
-      // desde caché si existe, y de paso intenta refrescar la caché si hay red.
       const networkFetch = fetch(event.request)
         .then(function (networkResponse) {
           if (networkResponse && networkResponse.ok) {
@@ -53,10 +70,7 @@ self.addEventListener("fetch", function (event) {
           return networkResponse;
         })
         .catch(function () {
-          // Sin red: si no hay nada en caché para esta request exacta,
-          // como último recurso devolvemos el index.html cacheado
-          // (útil para la navegación inicial sin conexión).
-          return caches.match("./index.html");
+          return cachedResponse || caches.match("./index.html");
         });
 
       return cachedResponse || networkFetch;
