@@ -507,7 +507,11 @@ function eventosPorFecha() {
     }
   });
   Object.keys(map).forEach(function (k) {
-    map[k].sort(function (a, b) { return (a.hora || "").localeCompare(b.hora || ""); });
+    map[k].sort(function (a, b) {
+      // Las tareas completadas siempre van al final del día, sin importar su hora.
+      if (!!a.completado !== !!b.completado) return a.completado ? 1 : -1;
+      return (a.hora || "").localeCompare(b.hora || "");
+    });
   });
   return map;
 }
@@ -785,6 +789,11 @@ function renderFichaPersona(personaId) {
     (state.modalPersonal === "confirmarEliminarHecho" ? renderModalConfirmarEliminarGenerico(
         "¿Eliminar este hecho?", "Esta acción no se puede deshacer.",
         "btn-cancelar-eliminar-hecho", "btn-confirmar-eliminar-hecho"
+      ) : "") +
+    (state.modalPersonal === "persona" ? renderModalPersona() : "") +
+    (state.modalPersonal === "confirmarEliminarPersona" ? renderModalConfirmarEliminarGenerico(
+        "¿Eliminar a esta persona?", "Se eliminará también todo su historial de hechos registrados. Esta acción no se puede deshacer.",
+        "btn-cancelar-eliminar-persona", "btn-confirmar-eliminar-persona"
       ) : "")
   );
 }
