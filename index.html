@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover" />
-<title>Bitácora Operativa</title>
+<title>Agenda de Operaciones</title>
 
 <meta name="apple-mobile-web-app-capable" content="yes" />
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
@@ -38,8 +38,12 @@
     background: linear-gradient(180deg, #0E2235 0%, #0B1B2B 100%);
     padding: 14px 18px;
     padding-top: max(14px, env(safe-area-inset-top));
-    display: flex; flex-wrap: wrap; gap: 14px;
-    align-items: center; justify-content: space-between;
+    display: grid; grid-template-columns: 1fr auto 1fr; gap: 14px;
+    align-items: center;
+  }
+  .topbar-titulo {
+    text-align: center; font-size: 17px; font-weight: 700; color: #D99A3D;
+    letter-spacing: 0.5px; white-space: nowrap;
   }
   .dot { width: 10px; height: 10px; border-radius: 50%; animation: pulse-dot 2s infinite; }
   .stat { text-align: center; }
@@ -67,6 +71,31 @@
   .deleg-card {
     display: flex; align-items: center; justify-content: space-between; gap: 12px;
     background: #0E2235; border: 1px solid #1E3247; border-radius: 10px; padding: 12px 14px; cursor: pointer;
+  }
+
+  .molo-scroll { overflow-x: auto; }
+  .molo-tabla { display: flex; flex-direction: column; min-width: 760px; }
+  .molo-fila { display: flex; border-bottom: 1px solid #1E3247; }
+  .molo-fila-header { border-bottom: 1px solid #2A3F54; }
+  .molo-fila-nombre {
+    width: 140px; min-width: 140px; padding: 10px 12px; display: flex; flex-direction: column; justify-content: center;
+    border-right: 1px solid #1E3247; cursor: pointer; background: #0E2235;
+  }
+  .molo-fila-nombre-header { background: transparent; cursor: default; border-right: 1px solid #2A3F54; }
+  .molo-celdas { display: flex; flex: 1; }
+  .molo-dia-header {
+    flex: 1; min-width: 86px; text-align: center; padding: 8px 4px; border-right: 1px solid #1E3247;
+  }
+  .molo-dia-header.today { background: rgba(217,154,61,0.08); }
+  .molo-celda {
+    flex: 1; min-width: 86px; padding: 5px; border-right: 1px solid #1E3247; cursor: pointer;
+    display: flex; flex-direction: column; gap: 3px; min-height: 56px;
+  }
+  .molo-celda.today { background: rgba(217,154,61,0.05); }
+  .molo-celda:hover { background: rgba(255,255,255,0.02); }
+  .molo-bloque {
+    font-size: 10px; line-height: 1.3; padding: 3px 5px; border-radius: 3px; color: #C9D2DA;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
   }
 
   .iconbtn {
@@ -266,7 +295,7 @@ function calcularHoraTermino(horaInicio, duracionMin) {
 function fmtISO(d) { return d.getFullYear() + "-" + pad(d.getMonth() + 1) + "-" + pad(d.getDate()); }
 function fmtDTG(d) {
   const dias = ["DOM", "LUN", "MAR", "MIE", "JUE", "VIE", "SAB"];
-  return pad(d.getDate()) + pad(d.getHours()) + pad(d.getMinutes()) + "Z " + dias[d.getDay()];
+  return pad(d.getDate()) + pad(d.getHours()) + pad(d.getMinutes()) + "Q " + dias[d.getDay()];
 }
 const MESES = ["ENERO","FEBRERO","MARZO","ABRIL","MAYO","JUNIO","JULIO","AGOSTO","SEPTIEMBRE","OCTUBRE","NOVIEMBRE","DICIEMBRE"];
 const MESES_ABR = ["ENE","FEB","MAR","ABR","MAY","JUN","JUL","AGO","SEP","OCT","NOV","DIC"];
@@ -311,12 +340,25 @@ const PRIORIDADES = [
   { id: "baja", label: "BAJA", color: "#5FE3A1" },
 ];
 
+/* ---------- Molo: tipos de actividad portuaria y buques por defecto ---------- */
+const TIPOS_ACTIVIDAD_MOLO_DEFAULT = [
+  { id: "zarpe", label: "ZARPE", color: "#5FE3A1" },
+  { id: "recalada", label: "RECALADA", color: "#6FA8D9" },
+  { id: "grua", label: "TRABAJO CON GRÚA", color: "#D99A3D" },
+  { id: "buceo", label: "BUCEO", color: "#7FB8C9" },
+  { id: "altura", label: "TRABAJO EN ALTURA", color: "#E0524A" },
+  { id: "dsot", label: "DSOT", color: "#C97FE0" },
+];
+const BUQUES_DEFAULT = [];
+
 /* ---------- Persistencia local ---------- */
 const STORAGE_KEY = "bitacora:eventos";
 const CAT_KEY = "bitacora:categorias";
 const RESP_KEY = "bitacora:responsables";
 const PERSONAL_KEY = "bitacora:personal";
 const HECHOS_KEY = "bitacora:hechos";
+const BUQUES_KEY = "bitacora:buques";
+const ACTIVIDADES_TRAFICO_KEY = "bitacora:actividadesTrafico";
 const DELEG_KEY = "bitacora:delegaciones";
 
 function loadLocal(key, fallback) {
@@ -420,7 +462,19 @@ const state = {
   delegacionEditando: null,
   eliminarDelegacionPendienteId: null,
   filtroEstadoDelegacion: "todas",
+  filtroResponsablesDeleg: [],
+  dropdownFiltroDelegAbierto: false,
   ocultarDelegacionesCompletadas: false,
+  buques: loadLocal(BUQUES_KEY, BUQUES_DEFAULT),
+  tiposActividadMolo: loadLocal("bitacora:tiposActividadMolo", TIPOS_ACTIVIDAD_MOLO_DEFAULT),
+  actividadesTrafico: loadLocal(ACTIVIDADES_TRAFICO_KEY, []),
+  cursorMolo: new Date(),
+  modalMolo: null, // 'buque' | 'actividad' | 'confirmarEliminarBuque' | 'confirmarEliminarActividad' | 'tiposActividad'
+  buqueEditando: null,
+  actividadEditando: null,
+  eliminarBuquePendienteId: null,
+  eliminarActividadPendienteId: null,
+  celdaMoloDetalle: null, // { buqueId, fecha } cuando se abre el detalle de una celda
   diasColapsados: {},
   ocultarCompletadasCalendario: false,
   filtroCategorias: [], // array de ids; vacío = todas
@@ -440,6 +494,9 @@ function persist() {
   saveLocal(RESP_KEY, state.responsables);
   saveLocal(PERSONAL_KEY, state.personal);
   saveLocal(HECHOS_KEY, state.hechos);
+  saveLocal(BUQUES_KEY, state.buques);
+  saveLocal("bitacora:tiposActividadMolo", state.tiposActividadMolo);
+  saveLocal(ACTIVIDADES_TRAFICO_KEY, state.actividadesTrafico);
 }
 
 // Migración única: las versiones anteriores guardaban las tareas delegadas en una
@@ -1102,6 +1159,7 @@ function renderSeccionDelegacion() {
   const hoyISO = fmtISO(new Date());
   const filtro = state.filtroEstadoDelegacion || "todas";
   const ocultarCompletadas = !!state.ocultarDelegacionesCompletadas;
+  const respSeleccionados = state.filtroResponsablesDeleg || [];
 
   let tareas = tareasDelegadas().slice().sort(function (a, b) {
     return (a.fechaFin || a.fecha || "9999").localeCompare(b.fechaFin || b.fecha || "9999");
@@ -1113,7 +1171,42 @@ function renderSeccionDelegacion() {
     tareas = tareas.filter(function (e) { return estadoDelegacionDeEvento(e) === filtro; });
   }
 
+  if (respSeleccionados.length) {
+    tareas = tareas.filter(function (e) { return respSeleccionados.indexOf(e.responsable || "") !== -1; });
+  }
+
   const totalCompletadas = tareasDelegadas().filter(function (e) { return e.completado; }).length;
+
+  // Responsables presentes entre TODAS las tareas delegadas (no solo las ya filtradas),
+  // para que el dropdown siempre ofrezca todas las opciones posibles.
+  const responsablesEnDelegacion = Array.from(new Set(
+    tareasDelegadas().map(function (e) { return e.responsable; }).filter(Boolean)
+  )).sort();
+
+  const labelResponsableDeleg = respSeleccionados.length === 0
+    ? "Todos los responsables"
+    : respSeleccionados.length === 1
+      ? escapeHTML(respSeleccionados[0])
+      : respSeleccionados.length + " responsables";
+
+  const dropdownRespDelegHtml = state.dropdownFiltroDelegAbierto ? (
+    '<div class="filtro-dropdown" id="dropdown-resp-deleg">' +
+      '<div class="filtro-dropdown-header">' +
+        '<button class="cond filtro-dropdown-link" data-action="filtro-resp-deleg-todos">Todos</button>' +
+        '<button class="cond filtro-dropdown-link" data-action="filtro-resp-deleg-ninguno">Ninguno</button>' +
+      '</div>' +
+      (responsablesEnDelegacion.length === 0
+        ? '<div class="cond" style="padding:8px 6px;font-size:12px;color:#5C7184;font-style:italic">Sin responsables asignados todavía.</div>'
+        : responsablesEnDelegacion.map(function (r) {
+            const checked = respSeleccionados.indexOf(r) !== -1;
+            return '<label class="filtro-dropdown-item">' +
+              '<input type="checkbox" data-action="filtro-resp-deleg-check" data-nombre="' + escapeHTML(r) + '"' + (checked ? " checked" : "") + ' />' +
+              '<span class="cond">' + escapeHTML(r) + '</span>' +
+            '</label>';
+          }).join("")
+      ) +
+    '</div>'
+  ) : "";
 
   const filtroBtns = [{ id: "todas", label: "Todas" }].concat(ESTADOS_DELEGACION.map(function (e) { return { id: e.id, label: e.label }; }))
     .map(function (f) {
@@ -1123,7 +1216,7 @@ function renderSeccionDelegacion() {
     }).join("");
 
   const tareasHtml = tareas.length === 0
-    ? '<div class="cond" style="text-align:center;padding:40px 20px;color:#5C7184;font-style:italic">Sin tareas delegadas' + (filtro !== "todas" ? " en este estado" : "") + '.</div>'
+    ? '<div class="cond" style="text-align:center;padding:40px 20px;color:#5C7184;font-style:italic">Sin tareas delegadas' + (filtro !== "todas" || respSeleccionados.length ? " con estos filtros" : "") + '.</div>'
     : tareas.map(function (ev) {
         const estadoId = estadoDelegacionDeEvento(ev);
         const estado = estadoDelegacionById(estadoId);
@@ -1161,6 +1254,10 @@ function renderSeccionDelegacion() {
       '</div>' +
       '<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px;align-items:center">' +
         filtroBtns +
+        '<div style="position:relative">' +
+          '<button class="pill cond" id="btn-filtro-resp-deleg" style="display:flex;align-items:center;gap:6px">' + labelResponsableDeleg + ' ' + icon("chevronDown", 12) + '</button>' +
+          dropdownRespDelegHtml +
+        '</div>' +
         '<button class="cond" id="btn-toggle-ocultar-completadas" style="margin-left:auto;display:flex;align-items:center;gap:6px;padding:6px 12px;border-radius:6px;border:1px solid #2A3F54;background:' + (ocultarCompletadas ? "#0E2235" : "transparent") + ';color:#8AA0B5;font-size:11.5px;font-weight:600;cursor:pointer;white-space:nowrap">' +
           (ocultarCompletadas ? icon("checkCircle", 13) : icon("list", 13)) + ' ' + (ocultarCompletadas ? "Mostrar terminadas" : "Ocultar terminadas") +
           (totalCompletadas ? ' <span class="mono">(' + totalCompletadas + ')</span>' : '') +
@@ -1228,6 +1325,38 @@ function bindEventsDelegacion() {
   document.querySelectorAll("[data-action='filtro-estado-deleg']").forEach(function (el) {
     el.onclick = function () { state.filtroEstadoDelegacion = el.getAttribute("data-estado"); render(); };
   });
+
+  const btnFiltroRespDeleg = document.getElementById("btn-filtro-resp-deleg");
+  if (btnFiltroRespDeleg) {
+    btnFiltroRespDeleg.onclick = function (e) {
+      e.stopPropagation();
+      state.dropdownFiltroDelegAbierto = !state.dropdownFiltroDelegAbierto;
+      render();
+    };
+  }
+  document.querySelectorAll("[data-action='filtro-resp-deleg-check']").forEach(function (el) {
+    el.onclick = function (e) {
+      e.stopPropagation();
+      const nombre = el.getAttribute("data-nombre");
+      const idx = state.filtroResponsablesDeleg.indexOf(nombre);
+      if (idx === -1) state.filtroResponsablesDeleg.push(nombre); else state.filtroResponsablesDeleg.splice(idx, 1);
+      render();
+    };
+  });
+  document.querySelectorAll("[data-action='filtro-resp-deleg-todos']").forEach(function (el) {
+    el.onclick = function (e) { e.stopPropagation(); state.filtroResponsablesDeleg = []; render(); };
+  });
+  document.querySelectorAll("[data-action='filtro-resp-deleg-ninguno']").forEach(function (el) {
+    el.onclick = function (e) {
+      e.stopPropagation();
+      state.filtroResponsablesDeleg = Array.from(new Set(tareasDelegadas().map(function (ev) { return ev.responsable; }).filter(Boolean)));
+      render();
+    };
+  });
+  if (state.dropdownFiltroDelegAbierto) {
+    const appEl = document.getElementById("app");
+    appEl.onclick = function () { state.dropdownFiltroDelegAbierto = false; render(); };
+  }
 
   const btnToggleOcultar = document.getElementById("btn-toggle-ocultar-completadas");
   if (btnToggleOcultar) btnToggleOcultar.onclick = function () { state.ocultarDelegacionesCompletadas = !state.ocultarDelegacionesCompletadas; render(); };
@@ -1364,6 +1493,529 @@ function bindEventsDelegacion() {
 }
 
 
+/* ============================================================
+   SECCIÓN MOLO — tráfico portuario: buques y sus actividades
+   puntuales (zarpe, recalada, grúa, buceo, altura, DSOT, etc.)
+   Vista tipo tabla: filas = buques, columnas = días.
+   ============================================================ */
+function tipoActividadMoloById(id) {
+  return state.tiposActividadMolo.find(function (t) { return t.id === id; }) || null;
+}
+function actividadesDeBuqueEnFecha(buqueId, fechaIso) {
+  return state.actividadesTrafico
+    .filter(function (a) { return a.buqueId === buqueId && a.fecha === fechaIso; })
+    .sort(function (a, b) { return (a.hora || "").localeCompare(b.hora || ""); });
+}
+
+function renderSeccionMolo() {
+  const start = startOfWeek(state.cursorMolo);
+  const dias = [];
+  for (let i = 0; i < 7; i++) dias.push(addDays(start, i));
+  const hoy = new Date();
+
+  if (state.buques.length === 0) {
+    return (
+      '<div style="padding:18px">' +
+        '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;flex-wrap:wrap;gap:10px">' +
+          '<div class="mono" style="font-size:13px;color:#D99A3D;letter-spacing:1px;font-weight:600">⚓ MOLO — TRÁFICO PORTUARIO</div>' +
+          '<button class="btn-primary cond" id="btn-nuevo-buque">' + icon("plus", 15) + ' Agregar buque</button>' +
+        '</div>' +
+        '<div class="cond" style="text-align:center;padding:50px 20px;color:#5C7184;font-style:italic">Aún no has agregado buques para seguimiento de tráfico portuario.</div>' +
+      '</div>' +
+      (state.modalMolo === "buque" ? renderModalBuque() : "")
+    );
+  }
+
+  const cellsHeaderHtml = dias.map(function (d) {
+    const esHoy = isSameDay(d, hoy);
+    return '<div class="molo-dia-header' + (esHoy ? " today" : "") + '">' +
+      '<div class="mono" style="font-size:10.5px;color:' + (esHoy ? "#D99A3D" : "#8AA0B5") + ';font-weight:700">' + DIAS_SEM[(d.getDay() + 6) % 7] + '</div>' +
+      '<div class="cond" style="font-size:12px;color:#C9D2DA">' + d.getDate() + ' ' + MESES_ABR[d.getMonth()] + '</div>' +
+    '</div>';
+  }).join("");
+
+  const filasHtml = state.buques.map(function (buque) {
+    const celdas = dias.map(function (d) {
+      const iso = fmtISO(d);
+      const esHoy = isSameDay(d, hoy);
+      const acts = actividadesDeBuqueEnFecha(buque.id, iso);
+      const bloquesHtml = acts.slice(0, 3).map(function (a) {
+        const tipo = tipoActividadMoloById(a.tipo) || { color: "#8AA0B5", label: "?" };
+        return '<div class="molo-bloque" style="background:' + tipo.color + '22;border-left:3px solid ' + tipo.color + '" title="' + escapeHTML(tipo.label) + (a.hora ? " · " + a.hora : "") + '">' +
+          (a.hora ? '<span class="mono" style="color:' + tipo.color + ';font-weight:700">' + a.hora + '</span> ' : "") +
+          '<span class="cond">' + escapeHTML(tipo.label) + '</span>' +
+        '</div>';
+      }).join("");
+      const masHtml = acts.length > 3 ? '<div class="mono" style="font-size:9px;color:#5C7184">+' + (acts.length - 3) + ' más</div>' : "";
+      return '<div class="molo-celda' + (esHoy ? " today" : "") + '" data-action="abrir-celda-molo" data-buque="' + buque.id + '" data-fecha="' + iso + '">' +
+        bloquesHtml + masHtml +
+      '</div>';
+    }).join("");
+
+    return (
+      '<div class="molo-fila">' +
+        '<div class="molo-fila-nombre" data-action="editar-buque" data-id="' + buque.id + '">' +
+          '<div class="cond" style="font-size:13px;font-weight:600;color:#E4EAEF">' + escapeHTML(buque.nombre) + '</div>' +
+          (buque.tipo ? '<div class="cond" style="font-size:10.5px;color:#8AA0B5;margin-top:1px">' + escapeHTML(buque.tipo) + '</div>' : "") +
+        '</div>' +
+        '<div class="molo-celdas">' + celdas + '</div>' +
+      '</div>'
+    );
+  }).join("");
+
+  return (
+    '<div style="padding:18px">' +
+      '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;flex-wrap:wrap;gap:10px">' +
+        '<div class="mono" style="font-size:13px;color:#D99A3D;letter-spacing:1px;font-weight:600">⚓ MOLO — TRÁFICO PORTUARIO</div>' +
+        '<div style="display:flex;gap:8px;flex-wrap:wrap">' +
+          '<button class="pillbtn cond" id="btn-tipos-actividad-molo" style="display:flex;align-items:center;gap:6px">' + icon("tag", 14) + ' Tipos de actividad</button>' +
+          '<button class="pillbtn cond" id="btn-gestionar-buques" style="display:flex;align-items:center;gap:6px">' + icon("users", 14) + ' Buques</button>' +
+          '<button class="btn-primary cond" id="btn-nueva-actividad-molo">' + icon("plus", 15) + ' Nueva actividad</button>' +
+        '</div>' +
+      '</div>' +
+      '<div class="navtemporal" style="padding:0 0 12px">' +
+        '<button class="navbtn" id="molo-nav-prev" aria-label="Semana anterior">' + icon("chevronLeft", 18) + '</button>' +
+        '<div style="display:flex;align-items:center;gap:12px">' +
+          '<div class="navlabel mono">' + dias[0].getDate() + ' ' + MESES_ABR[dias[0].getMonth()] + ' – ' + dias[6].getDate() + ' ' + MESES_ABR[dias[6].getMonth()] + '</div>' +
+          '<button class="hoybtn cond" id="molo-nav-hoy">HOY</button>' +
+        '</div>' +
+        '<button class="navbtn" id="molo-nav-next" aria-label="Semana siguiente">' + icon("chevronRight", 18) + '</button>' +
+      '</div>' +
+      '<div class="molo-scroll scrollbar">' +
+        '<div class="molo-tabla">' +
+          '<div class="molo-fila molo-fila-header">' +
+            '<div class="molo-fila-nombre molo-fila-nombre-header"></div>' +
+            '<div class="molo-celdas">' + cellsHeaderHtml + '</div>' +
+          '</div>' +
+          filasHtml +
+        '</div>' +
+      '</div>' +
+    '</div>' +
+    (state.modalMolo === "buque" ? renderModalBuque() : "") +
+    (state.modalMolo === "actividad" ? renderModalActividadMolo() : "") +
+    (state.modalMolo === "tiposActividad" ? renderModalTiposActividad() : "") +
+    (state.modalMolo === "gestionarBuques" ? renderModalGestionarBuques() : "") +
+    (state.celdaMoloDetalle ? renderModalDetalleCeldaMolo() : "") +
+    (state.modalMolo === "confirmarEliminarBuque" ? renderModalConfirmarEliminarGenerico(
+        "¿Eliminar este buque?", "Se eliminarán también todas sus actividades registradas. Esta acción no se puede deshacer.",
+        "btn-cancelar-eliminar-buque", "btn-confirmar-eliminar-buque"
+      ) : "") +
+    (state.modalMolo === "confirmarEliminarActividad" ? renderModalConfirmarEliminarGenerico(
+        "¿Eliminar esta actividad?", "Esta acción no se puede deshacer.",
+        "btn-cancelar-eliminar-actividad-molo", "btn-confirmar-eliminar-actividad-molo"
+      ) : "")
+  );
+}
+
+function renderModalDetalleCeldaMolo() {
+  const ref = state.celdaMoloDetalle;
+  const buque = state.buques.find(function (b) { return b.id === ref.buqueId; });
+  const acts = actividadesDeBuqueEnFecha(ref.buqueId, ref.fecha);
+  const d = new Date(ref.fecha + "T00:00:00");
+  const fechaLabel = d.getDate() + " de " + MESES[d.getMonth()].toLowerCase();
+
+  const actsHtml = acts.length === 0
+    ? '<div class="empty-state cond">Sin actividades registradas.</div>'
+    : acts.map(function (a) {
+        const tipo = tipoActividadMoloById(a.tipo) || { color: "#8AA0B5", label: "?" };
+        return '<div class="hecho-card" style="border-left:6px solid ' + tipo.color + '">' +
+          '<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px">' +
+            '<div style="flex:1;min-width:0">' +
+              '<div class="mono" style="font-size:10px;color:' + tipo.color + ';font-weight:700;letter-spacing:0.5px;margin-bottom:4px">' + escapeHTML(tipo.label) + (a.hora ? " · " + a.hora : "") + '</div>' +
+              (a.notas ? '<div class="cond" style="font-size:13px;color:#C9D2DA;line-height:1.4">' + escapeHTML(a.notas) + '</div>' : "") +
+            '</div>' +
+            '<div style="display:flex;gap:4px;flex-shrink:0">' +
+              '<button class="iconbtn-sm" data-action="editar-actividad-molo" data-id="' + a.id + '" title="Editar">' + icon("edit", 13) + '</button>' +
+              '<button class="iconbtn-sm" data-action="eliminar-actividad-molo" data-id="' + a.id + '" title="Eliminar">' + icon("trash", 13) + '</button>' +
+            '</div>' +
+          '</div>' +
+        '</div>';
+      }).join("");
+
+  return (
+    '<div class="overlay" id="overlay-detalle-celda-molo">' +
+      '<div class="modal">' +
+        '<div class="modal-head" style="align-items:flex-start">' +
+          '<div>' +
+            '<div class="mono" style="font-size:11px;color:#8AA0B5;letter-spacing:1px">' + escapeHTML((buque && buque.nombre) || "") + '</div>' +
+            '<div class="cond" style="font-size:18px;font-weight:600;color:#E4EAEF">' + fechaLabel + '</div>' +
+          '</div>' +
+          '<button class="iconbtn" id="btn-cerrar-detalle-celda-molo">' + icon("x", 16) + '</button>' +
+        '</div>' +
+        '<div class="scrollbar" style="display:flex;flex-direction:column;gap:8px;margin-bottom:14px;max-height:50vh;overflow-y:auto">' + actsHtml + '</div>' +
+        '<button class="cond" id="btn-agregar-actividad-desde-celda" style="display:flex;align-items:center;justify-content:center;gap:6px;width:100%;padding:10px;border-radius:7px;border:none;background:#5FE3A1;color:#0B1B2B;font-weight:700;font-size:13px;cursor:pointer">' +
+          icon("plus", 15) + ' Agregar actividad</button>' +
+      '</div>' +
+    '</div>'
+  );
+}
+
+function renderModalBuque() {
+  const b = state.buqueEditando;
+  const nombre = (b && b.nombre) || "";
+  const tipo = (b && b.tipo) || "";
+  return (
+    '<div class="overlay" id="overlay-buque">' +
+      '<div class="modal" style="max-width:380px">' +
+        '<div class="modal-head">' +
+          '<div class="modal-title mono">' + (b ? "EDITAR BUQUE" : "NUEVO BUQUE") + '</div>' +
+          '<button class="iconbtn" id="btn-cerrar-buque">' + icon("x", 16) + '</button>' +
+        '</div>' +
+        '<div class="campo"><label class="campo-label mono">NOMBRE</label><input class="field" id="buque-nombre" value="' + escapeHTML(nombre) + '" placeholder="Ej: LM Sargento Aldea" /></div>' +
+        '<div class="campo"><label class="campo-label mono">TIPO / CLASE (OPCIONAL)</label><input class="field" id="buque-tipo" value="' + escapeHTML(tipo) + '" placeholder="Ej: Lancha de Maniobra" /></div>' +
+        '<div id="buque-error"></div>' +
+        '<div class="modal-actions">' +
+          '<button class="btn-cancel cond" id="btn-cancelar-buque">Cancelar</button>' +
+          '<button class="btn-guardar cond" id="btn-guardar-buque">Guardar</button>' +
+        '</div>' +
+        (b ? '<button class="cond" id="btn-eliminar-buque-desde-modal" style="margin-top:10px;width:100%;padding:8px;border-radius:7px;border:1px solid #E0524A;background:transparent;color:#E0524A;font-size:12.5px;font-weight:600;cursor:pointer">' + icon("trash", 13) + ' Eliminar buque</button>' : "") +
+      '</div>' +
+    '</div>'
+  );
+}
+
+function renderModalActividadMolo() {
+  const a = state.actividadEditando;
+  const buqueId = (a && a.buqueId) || (state.celdaMoloDetalle && state.celdaMoloDetalle.buqueId) || (state.buques[0] && state.buques[0].id) || "";
+  const fecha = (a && a.fecha) || (state.celdaMoloDetalle && state.celdaMoloDetalle.fecha) || fmtISO(new Date());
+  const tipo = (a && a.tipo) || (state.tiposActividadMolo[0] && state.tiposActividadMolo[0].id) || "";
+  const hora = (a && a.hora) || "08:00";
+  const notas = (a && a.notas) || "";
+
+  const buqueOptions = state.buques.map(function (b) {
+    return '<option value="' + b.id + '"' + (buqueId === b.id ? " selected" : "") + '>' + escapeHTML(b.nombre) + '</option>';
+  }).join("");
+  const tipoOptions = state.tiposActividadMolo.map(function (t) {
+    return '<option value="' + t.id + '"' + (tipo === t.id ? " selected" : "") + '>' + escapeHTML(t.label) + '</option>';
+  }).join("");
+
+  return (
+    '<div class="overlay" id="overlay-actividad-molo">' +
+      '<div class="modal" style="max-width:400px">' +
+        '<div class="modal-head">' +
+          '<div class="modal-title mono">' + (a ? "EDITAR ACTIVIDAD" : "NUEVA ACTIVIDAD") + '</div>' +
+          '<button class="iconbtn" id="btn-cerrar-actividad-molo">' + icon("x", 16) + '</button>' +
+        '</div>' +
+        '<div class="campo"><label class="campo-label mono">BUQUE</label><select class="field" id="act-molo-buque">' + buqueOptions + '</select></div>' +
+        '<div class="campo"><label class="campo-label mono">TIPO DE ACTIVIDAD</label><select class="field" id="act-molo-tipo">' + tipoOptions + '</select></div>' +
+        '<div class="row-gap">' +
+          '<div class="campo" style="flex:1"><label class="campo-label mono">FECHA</label><input class="field" type="date" id="act-molo-fecha" value="' + fecha + '" /></div>' +
+          '<div class="campo" style="flex:1"><label class="campo-label mono">HORA</label><input class="field" type="time" id="act-molo-hora" value="' + hora + '" /></div>' +
+        '</div>' +
+        '<div class="campo"><label class="campo-label mono">NOTAS (OPCIONAL)</label><textarea class="field" id="act-molo-notas" rows="2" placeholder="Detalles de la actividad…">' + escapeHTML(notas) + '</textarea></div>' +
+        '<div id="act-molo-error"></div>' +
+        '<div class="modal-actions">' +
+          '<button class="btn-cancel cond" id="btn-cancelar-actividad-molo">Cancelar</button>' +
+          '<button class="btn-guardar cond" id="btn-guardar-actividad-molo">Guardar</button>' +
+        '</div>' +
+      '</div>' +
+    '</div>'
+  );
+}
+
+function renderModalTiposActividad() {
+  const filas = state.tiposActividadMolo.map(function (t) {
+    return '<div style="display:flex;align-items:center;gap:8px">' +
+      '<div style="width:14px;height:14px;border-radius:3px;background:' + t.color + ';flex-shrink:0"></div>' +
+      '<div class="cond" style="flex:1;font-size:13.5px;color:#E4EAEF">' + escapeHTML(t.label) + '</div>' +
+      '<button class="iconbtn-sm" data-action="del-tipo-actividad-molo" data-id="' + t.id + '" title="Eliminar">' + icon("trash", 13) + '</button>' +
+    '</div>';
+  }).join('<div style="height:6px"></div>');
+
+  return (
+    '<div class="overlay" id="overlay-tipos-actividad">' +
+      '<div class="modal wide">' +
+        '<div class="modal-head">' +
+          '<div class="modal-title mono">TIPOS DE ACTIVIDAD</div>' +
+          '<button class="iconbtn" id="btn-cerrar-tipos-actividad">' + icon("x", 16) + '</button>' +
+        '</div>' +
+        '<div style="display:flex;flex-direction:column;margin-bottom:14px">' + filas + '</div>' +
+        '<div style="display:flex;gap:6px">' +
+          '<input type="color" id="nuevo-tipo-color" value="#6FA8D9" style="width:38px;height:36px;border:1px solid #2A3F54;border-radius:6px;background:transparent;cursor:pointer" />' +
+          '<input class="field" id="nuevo-tipo-nombre" placeholder="Nuevo tipo de actividad…" style="flex:1" />' +
+          '<button class="cond" id="btn-add-tipo-actividad" style="padding:0 14px;border-radius:7px;border:none;background:#5FE3A1;color:#0B1B2B;font-weight:700;cursor:pointer">Añadir</button>' +
+        '</div>' +
+      '</div>' +
+    '</div>'
+  );
+}
+
+function renderModalGestionarBuques() {
+  const filas = state.buques.map(function (b) {
+    return '<div style="display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid #1E3247">' +
+      '<div style="flex:1;min-width:0">' +
+        '<div class="cond" style="font-size:13.5px;color:#E4EAEF">' + escapeHTML(b.nombre) + '</div>' +
+        (b.tipo ? '<div class="cond" style="font-size:11px;color:#8AA0B5">' + escapeHTML(b.tipo) + '</div>' : "") +
+      '</div>' +
+      '<button class="iconbtn-sm" data-action="editar-buque-desde-gestor" data-id="' + b.id + '" title="Editar">' + icon("edit", 13) + '</button>' +
+      '<button class="iconbtn-sm" data-action="del-buque-desde-gestor" data-id="' + b.id + '" title="Eliminar">' + icon("trash", 13) + '</button>' +
+    '</div>';
+  }).join("");
+
+  return (
+    '<div class="overlay" id="overlay-gestionar-buques">' +
+      '<div class="modal wide">' +
+        '<div class="modal-head">' +
+          '<div class="modal-title mono">BUQUES</div>' +
+          '<button class="iconbtn" id="btn-cerrar-gestionar-buques">' + icon("x", 16) + '</button>' +
+        '</div>' +
+        '<div style="margin-bottom:14px">' + (filas || '<div class="cond" style="color:#5C7184;font-style:italic;font-size:13px;padding:10px 0">Sin buques agregados.</div>') + '</div>' +
+        '<button class="btn-primary cond" id="btn-agregar-buque-desde-gestor" style="width:100%;justify-content:center">' + icon("plus", 15) + ' Agregar buque</button>' +
+      '</div>' +
+    '</div>'
+  );
+}
+
+function bindEventsMolo() {
+  if (state.seccion !== "molo") return;
+
+  const btnNuevoBuque = document.getElementById("btn-nuevo-buque");
+  if (btnNuevoBuque) btnNuevoBuque.onclick = function () { state.buqueEditando = null; state.modalMolo = "buque"; render(); };
+
+  const moloNavPrev = document.getElementById("molo-nav-prev");
+  const moloNavNext = document.getElementById("molo-nav-next");
+  const moloNavHoy = document.getElementById("molo-nav-hoy");
+  if (moloNavPrev) moloNavPrev.onclick = function () { state.cursorMolo = addDays(state.cursorMolo, -7); render(); };
+  if (moloNavNext) moloNavNext.onclick = function () { state.cursorMolo = addDays(state.cursorMolo, 7); render(); };
+  if (moloNavHoy) moloNavHoy.onclick = function () { state.cursorMolo = new Date(); render(); };
+
+  const btnTiposActividad = document.getElementById("btn-tipos-actividad-molo");
+  if (btnTiposActividad) btnTiposActividad.onclick = function () { state.modalMolo = "tiposActividad"; render(); };
+
+  const btnGestionarBuques = document.getElementById("btn-gestionar-buques");
+  if (btnGestionarBuques) btnGestionarBuques.onclick = function () { state.modalMolo = "gestionarBuques"; render(); };
+
+  const btnNuevaActividadMolo = document.getElementById("btn-nueva-actividad-molo");
+  if (btnNuevaActividadMolo) btnNuevaActividadMolo.onclick = function () {
+    if (state.buques.length === 0) { state.buqueEditando = null; state.modalMolo = "buque"; render(); return; }
+    state.actividadEditando = null;
+    state.modalMolo = "actividad";
+    render();
+  };
+
+  document.querySelectorAll("[data-action='abrir-celda-molo']").forEach(function (el) {
+    el.onclick = function () {
+      state.celdaMoloDetalle = { buqueId: el.getAttribute("data-buque"), fecha: el.getAttribute("data-fecha") };
+      render();
+    };
+  });
+  document.querySelectorAll("[data-action='editar-buque']").forEach(function (el) {
+    el.onclick = function () {
+      const id = el.getAttribute("data-id");
+      state.buqueEditando = state.buques.find(function (b) { return b.id === id; });
+      state.modalMolo = "buque";
+      render();
+    };
+  });
+
+  // Modal buque
+  const cerrarModalBuque = function () { state.modalMolo = null; state.buqueEditando = null; render(); };
+  const btnCerrarBuque = document.getElementById("btn-cerrar-buque");
+  const btnCancelarBuque = document.getElementById("btn-cancelar-buque");
+  if (btnCerrarBuque) btnCerrarBuque.onclick = cerrarModalBuque;
+  if (btnCancelarBuque) btnCancelarBuque.onclick = cerrarModalBuque;
+  const overlayBuque = document.getElementById("overlay-buque");
+  if (overlayBuque) overlayBuque.onclick = function (e) { if (e.target === overlayBuque) cerrarModalBuque(); };
+
+  const btnGuardarBuque = document.getElementById("btn-guardar-buque");
+  if (btnGuardarBuque) {
+    btnGuardarBuque.onclick = function () {
+      const nombre = document.getElementById("buque-nombre").value.trim();
+      const tipo = document.getElementById("buque-tipo").value.trim();
+      const errorBox = document.getElementById("buque-error");
+      if (!nombre) { errorBox.innerHTML = '<div class="error-text cond">El nombre es obligatorio.</div>'; return; }
+      if (state.buqueEditando) {
+        state.buques = state.buques.map(function (b) {
+          return b.id === state.buqueEditando.id ? Object.assign({}, b, { nombre: nombre, tipo: tipo }) : b;
+        });
+      } else {
+        state.buques.push({ id: uid(), nombre: nombre, tipo: tipo });
+      }
+      persist();
+      state.modalMolo = null;
+      state.buqueEditando = null;
+      render();
+    };
+  }
+  const btnEliminarBuqueDesdeModal = document.getElementById("btn-eliminar-buque-desde-modal");
+  if (btnEliminarBuqueDesdeModal) {
+    btnEliminarBuqueDesdeModal.onclick = function () {
+      state.eliminarBuquePendienteId = state.buqueEditando.id;
+      state.modalMolo = "confirmarEliminarBuque";
+      render();
+    };
+  }
+
+  // Confirmar eliminar buque
+  const btnCancelarEliminarBuque = document.getElementById("btn-cancelar-eliminar-buque");
+  if (btnCancelarEliminarBuque) btnCancelarEliminarBuque.onclick = function () { state.modalMolo = null; state.eliminarBuquePendienteId = null; render(); };
+  const btnConfirmarEliminarBuque = document.getElementById("btn-confirmar-eliminar-buque");
+  if (btnConfirmarEliminarBuque) {
+    btnConfirmarEliminarBuque.onclick = function () {
+      const id = state.eliminarBuquePendienteId;
+      state.buques = state.buques.filter(function (b) { return b.id !== id; });
+      state.actividadesTrafico = state.actividadesTrafico.filter(function (a) { return a.buqueId !== id; });
+      persist();
+      state.modalMolo = null;
+      state.eliminarBuquePendienteId = null;
+      state.buqueEditando = null;
+      render();
+    };
+  }
+
+  // Modal actividad
+  const cerrarModalActividad = function () { state.modalMolo = state.celdaMoloDetalle ? null : null; state.actividadEditando = null; if (!state.celdaMoloDetalle) state.modalMolo = null; render(); };
+  const btnCerrarActividadMolo = document.getElementById("btn-cerrar-actividad-molo");
+  const btnCancelarActividadMolo = document.getElementById("btn-cancelar-actividad-molo");
+  if (btnCerrarActividadMolo) btnCerrarActividadMolo.onclick = function () { state.modalMolo = null; state.actividadEditando = null; render(); };
+  if (btnCancelarActividadMolo) btnCancelarActividadMolo.onclick = function () { state.modalMolo = null; state.actividadEditando = null; render(); };
+  const overlayActividadMolo = document.getElementById("overlay-actividad-molo");
+  if (overlayActividadMolo) overlayActividadMolo.onclick = function (e) { if (e.target === overlayActividadMolo) { state.modalMolo = null; state.actividadEditando = null; render(); } };
+
+  const btnGuardarActividadMolo = document.getElementById("btn-guardar-actividad-molo");
+  if (btnGuardarActividadMolo) {
+    btnGuardarActividadMolo.onclick = function () {
+      const buqueId = document.getElementById("act-molo-buque").value;
+      const tipo = document.getElementById("act-molo-tipo").value;
+      const fecha = document.getElementById("act-molo-fecha").value;
+      const hora = document.getElementById("act-molo-hora").value;
+      const notas = document.getElementById("act-molo-notas").value.trim();
+      const errorBox = document.getElementById("act-molo-error");
+      if (!buqueId) { errorBox.innerHTML = '<div class="error-text cond">Debes seleccionar un buque.</div>'; return; }
+      if (!fecha) { errorBox.innerHTML = '<div class="error-text cond">La fecha es obligatoria.</div>'; return; }
+      if (state.actividadEditando) {
+        state.actividadesTrafico = state.actividadesTrafico.map(function (a) {
+          return a.id === state.actividadEditando.id ? Object.assign({}, a, { buqueId: buqueId, tipo: tipo, fecha: fecha, hora: hora, notas: notas }) : a;
+        });
+      } else {
+        state.actividadesTrafico.push({ id: uid(), buqueId: buqueId, tipo: tipo, fecha: fecha, hora: hora, notas: notas });
+      }
+      persist();
+      state.modalMolo = null;
+      state.actividadEditando = null;
+      render();
+    };
+  }
+
+  // Detalle de celda (buque x día)
+  const btnCerrarDetalleCelda = document.getElementById("btn-cerrar-detalle-celda-molo");
+  if (btnCerrarDetalleCelda) btnCerrarDetalleCelda.onclick = function () { state.celdaMoloDetalle = null; render(); };
+  const overlayDetalleCelda = document.getElementById("overlay-detalle-celda-molo");
+  if (overlayDetalleCelda) overlayDetalleCelda.onclick = function (e) { if (e.target === overlayDetalleCelda) { state.celdaMoloDetalle = null; render(); } };
+  const btnAgregarActividadDesdeCelda = document.getElementById("btn-agregar-actividad-desde-celda");
+  if (btnAgregarActividadDesdeCelda) {
+    btnAgregarActividadDesdeCelda.onclick = function () {
+      state.actividadEditando = null;
+      state.modalMolo = "actividad";
+      render();
+    };
+  }
+  document.querySelectorAll("[data-action='editar-actividad-molo']").forEach(function (el) {
+    el.onclick = function () {
+      const id = el.getAttribute("data-id");
+      state.actividadEditando = state.actividadesTrafico.find(function (a) { return a.id === id; });
+      state.modalMolo = "actividad";
+      render();
+    };
+  });
+  document.querySelectorAll("[data-action='eliminar-actividad-molo']").forEach(function (el) {
+    el.onclick = function (e) {
+      e.stopPropagation();
+      state.eliminarActividadPendienteId = el.getAttribute("data-id");
+      state.modalMolo = "confirmarEliminarActividad";
+      render();
+    };
+  });
+  const btnCancelarEliminarActMolo = document.getElementById("btn-cancelar-eliminar-actividad-molo");
+  if (btnCancelarEliminarActMolo) btnCancelarEliminarActMolo.onclick = function () { state.modalMolo = null; state.eliminarActividadPendienteId = null; render(); };
+  const btnConfirmarEliminarActMolo = document.getElementById("btn-confirmar-eliminar-actividad-molo");
+  if (btnConfirmarEliminarActMolo) {
+    btnConfirmarEliminarActMolo.onclick = function () {
+      const id = state.eliminarActividadPendienteId;
+      state.actividadesTrafico = state.actividadesTrafico.filter(function (a) { return a.id !== id; });
+      persist();
+      state.modalMolo = null;
+      state.eliminarActividadPendienteId = null;
+      render();
+    };
+  }
+
+  // Modal tipos de actividad
+  const btnCerrarTiposActividad = document.getElementById("btn-cerrar-tipos-actividad");
+  if (btnCerrarTiposActividad) btnCerrarTiposActividad.onclick = function () { state.modalMolo = null; render(); };
+  const overlayTiposActividad = document.getElementById("overlay-tipos-actividad");
+  if (overlayTiposActividad) overlayTiposActividad.onclick = function (e) { if (e.target === overlayTiposActividad) { state.modalMolo = null; render(); } };
+  document.querySelectorAll("[data-action='del-tipo-actividad-molo']").forEach(function (el) {
+    el.onclick = function () {
+      const id = el.getAttribute("data-id");
+      state.tiposActividadMolo = state.tiposActividadMolo.filter(function (t) { return t.id !== id; });
+      persist();
+      render();
+    };
+  });
+  const btnAddTipoActividad = document.getElementById("btn-add-tipo-actividad");
+  if (btnAddTipoActividad) {
+    btnAddTipoActividad.onclick = function () {
+      const nombre = document.getElementById("nuevo-tipo-nombre").value.trim();
+      const color = document.getElementById("nuevo-tipo-color").value;
+      if (!nombre) return;
+      state.tiposActividadMolo.push({ id: uid(), label: nombre.toUpperCase(), color: color });
+      persist();
+      render();
+    };
+  }
+  const nuevoTipoNombre = document.getElementById("nuevo-tipo-nombre");
+  if (nuevoTipoNombre) {
+    nuevoTipoNombre.onkeydown = function (e) {
+      if (e.key === "Enter") {
+        const color = document.getElementById("nuevo-tipo-color").value;
+        if (!nuevoTipoNombre.value.trim()) return;
+        state.tiposActividadMolo.push({ id: uid(), label: nuevoTipoNombre.value.trim().toUpperCase(), color: color });
+        persist();
+        render();
+      }
+    };
+  }
+
+  // Modal gestionar buques
+  const btnCerrarGestionarBuques = document.getElementById("btn-cerrar-gestionar-buques");
+  if (btnCerrarGestionarBuques) btnCerrarGestionarBuques.onclick = function () { state.modalMolo = null; render(); };
+  const overlayGestionarBuques = document.getElementById("overlay-gestionar-buques");
+  if (overlayGestionarBuques) overlayGestionarBuques.onclick = function (e) { if (e.target === overlayGestionarBuques) { state.modalMolo = null; render(); } };
+  const btnAgregarBuqueDesdeGestor = document.getElementById("btn-agregar-buque-desde-gestor");
+  if (btnAgregarBuqueDesdeGestor) btnAgregarBuqueDesdeGestor.onclick = function () { state.buqueEditando = null; state.modalMolo = "buque"; render(); };
+  document.querySelectorAll("[data-action='editar-buque-desde-gestor']").forEach(function (el) {
+    el.onclick = function () {
+      const id = el.getAttribute("data-id");
+      state.buqueEditando = state.buques.find(function (b) { return b.id === id; });
+      state.modalMolo = "buque";
+      render();
+    };
+  });
+  document.querySelectorAll("[data-action='del-buque-desde-gestor']").forEach(function (el) {
+    el.onclick = function (e) {
+      e.stopPropagation();
+      state.eliminarBuquePendienteId = el.getAttribute("data-id");
+      state.modalMolo = "confirmarEliminarBuque";
+      render();
+    };
+  });
+
+  // Overlay genérico de confirmación (compartido con Personal/Delegación, ya bindeado
+  // por bindEventsPersonal/bindEventsDelegacion, pero esos solo corren si su sección
+  // está activa; aquí lo manejamos también para los casos propios de Molo).
+  const overlayGenericoMolo = document.getElementById("overlay-confirmar-generico");
+  if (overlayGenericoMolo) {
+    overlayGenericoMolo.onclick = function (e) {
+      if (e.target !== overlayGenericoMolo) return;
+      if (state.modalMolo === "confirmarEliminarBuque") { state.modalMolo = null; state.eliminarBuquePendienteId = null; }
+      if (state.modalMolo === "confirmarEliminarActividad") { state.modalMolo = null; state.eliminarActividadPendienteId = null; }
+      render();
+    };
+  }
+}
+
+
 function renderTopbar() {
   const hoy = new Date();
   const hoyISO = fmtISO(hoy);
@@ -1374,7 +2026,7 @@ function renderTopbar() {
 
   const statsHtml = esCalendario
     ? (
-        '<div style="display:flex;gap:18px;align-items:center;font-size:13px">' +
+        '<div style="display:flex;gap:14px;align-items:center;font-size:13px;justify-content:center;flex-wrap:wrap;margin-top:8px">' +
           '<div class="stat"><div class="stat-num mono" style="color:#C9D2DA">' + pendientesHoy.length + '</div><div class="stat-label">HOY PENDIENTE</div></div>' +
           '<div class="stat"><div class="stat-num mono" style="color:' + (vencidos.length ? "#E0524A" : "#C9D2DA") + '">' + vencidos.length + '</div><div class="stat-label">VENCIDOS</div></div>' +
           '<button class="cond" id="btn-completadas" style="display:flex;align-items:center;gap:6px;padding:8px 12px;border-radius:7px;border:1px solid #2A3F54;background:#0E2235;color:#5FE3A1;font-weight:600;font-size:12.5px;cursor:pointer;white-space:nowrap">' +
@@ -1385,23 +2037,24 @@ function renderTopbar() {
             : '') +
         '</div>'
       )
-    : '<div></div>';
+    : '';
 
   return (
-    '<div class="topbar">' +
-      '<div style="display:flex;align-items:center;gap:10px">' +
+    '<div class="topbar" style="grid-template-columns:auto 1fr">' +
+      '<div style="display:flex;align-items:center">' +
         '<div class="dot" style="background:' + (vencidos.length ? "#E0524A" : "#5FE3A1") + ';box-shadow:0 0 8px ' + (vencidos.length ? "#E0524A" : "#5FE3A1") + '"></div>' +
-        '<div>' +
-          '<div class="mono" style="font-size:11px;color:#8AA0B5;letter-spacing:1px">BITÁCORA OPERATIVA</div>' +
-          '<div class="mono" id="dtg-clock" style="font-size:15px;color:#D99A3D;font-weight:600;letter-spacing:0.5px">' + fmtDTG(new Date()) + '</div>' +
-        '</div>' +
       '</div>' +
-      statsHtml +
+      '<div style="text-align:center">' +
+        '<div class="topbar-titulo cond">AGENDA DE OPERACIONES</div>' +
+        '<div class="mono" id="dtg-clock" style="font-size:12px;color:#8AA0B5;font-weight:600;letter-spacing:0.5px;margin-top:2px">' + fmtDTG(new Date()) + '</div>' +
+        statsHtml +
+      '</div>' +
     '</div>' +
     '<div class="seccion-nav">' +
       '<button class="seccion-btn' + (esCalendario ? " active" : "") + '" id="sec-calendario">' + icon("calendar", 14) + ' Calendario</button>' +
       '<button class="seccion-btn' + (state.seccion === "personal" ? " active" : "") + '" id="sec-personal">' + icon("users", 14) + ' Personal</button>' +
       '<button class="seccion-btn' + (state.seccion === "delegacion" ? " active" : "") + '" id="sec-delegacion">' + icon("layers", 14) + ' Delegación</button>' +
+      '<button class="seccion-btn' + (state.seccion === "molo" ? " active" : "") + '" id="sec-molo">⚓ Molo</button>' +
     '</div>'
   );
 }
@@ -2056,6 +2709,8 @@ function render() {
     html = renderTopbar() + renderSeccionPersonal();
   } else if (state.seccion === "delegacion") {
     html = renderTopbar() + renderSeccionDelegacion();
+  } else if (state.seccion === "molo") {
+    html = renderTopbar() + renderSeccionMolo();
   } else {
     const fab = state.eventos.length > 0
       ? '<button class="fab cond" id="btn-export-todo">' + icon("download", 15) + ' Exportar todo (.ics)</button>'
@@ -2090,18 +2745,21 @@ function render() {
 function bindEvents() {
   const app = document.getElementById("app");
 
-  // Navegación entre secciones principales (Calendario / Personal / Delegación)
+  // Navegación entre secciones principales (Calendario / Personal / Delegación / Molo)
   const secCalendario = document.getElementById("sec-calendario");
   const secPersonal = document.getElementById("sec-personal");
   const secDelegacion = document.getElementById("sec-delegacion");
+  const secMolo = document.getElementById("sec-molo");
   if (secCalendario) secCalendario.onclick = function () { state.seccion = "calendario"; render(); };
   if (secPersonal) secPersonal.onclick = function () { state.seccion = "personal"; render(); };
   if (secDelegacion) secDelegacion.onclick = function () { state.seccion = "delegacion"; render(); };
+  if (secMolo) secMolo.onclick = function () { state.seccion = "molo"; render(); };
 
   // Si no estamos en la sección calendario, el resto de bindings de esa sección no aplica.
   if (state.seccion !== "calendario") {
     bindEventsPersonal();
     bindEventsDelegacion();
+    bindEventsMolo();
     return;
   }
 
