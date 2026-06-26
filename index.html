@@ -60,6 +60,12 @@
   }
 
   .controls { padding: 14px 18px 0; display: flex; flex-wrap: wrap; gap: 10px; align-items: center; justify-content: space-between; }
+  .search-row {
+    display: flex; align-items: center; gap: 8px; background: #0E2235; border: 1px solid #1E3247;
+    border-radius: 8px; padding: 0 12px;
+  }
+  .search-row input { color: #E4EAEF; font-size: 13.5px; width: 100%; }
+  .search-row input::placeholder { color: #5C7184; }
   .tabgroup { display: flex; gap: 6px; background: #0E2235; border: 1px solid #1E3247; border-radius: 8px; padding: 4px; }
   .tabbtn { display: flex; align-items: center; gap: 6px; padding: 7px 14px; border-radius: 6px; border: none; font-weight: 600; font-size: 13px; cursor: pointer; background: transparent; color: #C9D2DA; }
   .tabbtn.active { background: #D99A3D; color: #0B1B2B; }
@@ -193,6 +199,12 @@ const ICONS = {
   alert: '<path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0Z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/>',
   skip: '<polygon points="5 4 15 12 5 20 5 4"/><line x1="19" y1="5" x2="19" y2="19"/>',
   checkCircle: '<circle cx="12" cy="12" r="9"/><path d="m8.5 12.5 2 2 5-5"/>',
+  search: '<circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>',
+  users: '<path d="M17 21v-2a4 4 0 0 0-4-4H7a4 4 0 0 0-4 4v2"/><circle cx="10" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>',
+  layers: '<path d="M12 2 2 7l10 5 10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/>',
+  list: '<line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/>',
+  download2: '<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/>',
+  upload: '<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/>',
 };
 function icon(name, size) {
   size = size || 16;
@@ -251,6 +263,12 @@ const CATEGORIAS_DEFAULT = [
   { id: "cic", label: "EJERCICIO CIC", color: "#C97FE0" },
 ];
 const RESPONSABLES_DEFAULT = ["OFOPER", "PWO-A", "PWO-U", "CONDESTABLE", "SATOPER", "INSTRUCCIÓN", "T1 MILLÓN", "T1 CORTHORN", "T2 BRITO"];
+const PLANTILLAS_DEFAULT = [
+  { id: "guardia-cic", nombre: "Guardia CIC", titulo: "Guardia CIC", categoria: "cic", hora: "08:00", duracion: 240, responsable: "PWO-A", prioridad: "media", lugar: "CIC" },
+  { id: "ejercicio-semanal", nombre: "Ejercicio semanal", titulo: "Ejercicio semanal de combate", categoria: "cic", hora: "10:00", duracion: 90, responsable: "OFOPER", prioridad: "alta", lugar: "CIC" },
+  { id: "reunion-coord", nombre: "Reunión de coordinación", titulo: "Reunión de coordinación", categoria: "reunion", hora: "09:00", duracion: 60, responsable: "OFOPER", prioridad: "media", lugar: "Cámara de oficiales" },
+  { id: "navegacion-transito", nombre: "Navegación de tránsito", titulo: "Navegación de tránsito", categoria: "navegacion", hora: "06:00", duracion: 480, responsable: "OFOPER", prioridad: "alta", lugar: "Puente" },
+];
 const PRIORIDADES = [
   { id: "alta", label: "ALTA", color: "#E0524A" },
   { id: "media", label: "MEDIA", color: "#D99A3D" },
@@ -261,6 +279,7 @@ const PRIORIDADES = [
 const STORAGE_KEY = "bitacora:eventos";
 const CAT_KEY = "bitacora:categorias";
 const RESP_KEY = "bitacora:responsables";
+const PLANT_KEY = "bitacora:plantillas";
 
 function loadLocal(key, fallback) {
   try {
@@ -350,8 +369,10 @@ const state = {
   eventos: loadLocal(STORAGE_KEY, []),
   categorias: loadLocal(CAT_KEY, CATEGORIAS_DEFAULT),
   responsables: loadLocal(RESP_KEY, RESPONSABLES_DEFAULT),
+  plantillas: loadLocal(PLANT_KEY, PLANTILLAS_DEFAULT),
   filtroCategoria: "todas",
   filtroResponsable: "todos",
+  busqueda: "",
   modal: null, // 'evento' | 'categorias' | 'detalleDia'
   eventoEditando: null,
   fechaSeleccionada: null,
@@ -363,6 +384,7 @@ function persist() {
   saveLocal(STORAGE_KEY, state.eventos);
   saveLocal(CAT_KEY, state.categorias);
   saveLocal(RESP_KEY, state.responsables);
+  saveLocal(PLANT_KEY, state.plantillas);
 }
 
 function catById(id) {
@@ -396,6 +418,14 @@ function eventosVisibles() {
   if (state.filtroResponsable !== "todos") {
     base = base.filter(function (e) { return (e.responsable || "") === state.filtroResponsable; });
   }
+  if (state.busqueda && state.busqueda.trim()) {
+    const q = state.busqueda.trim().toLowerCase();
+    base = base.filter(function (e) {
+      return (e.titulo || "").toLowerCase().indexOf(q) !== -1 ||
+        (e.notas || "").toLowerCase().indexOf(q) !== -1 ||
+        (e.lugar || "").toLowerCase().indexOf(q) !== -1;
+    });
+  }
   return base;
 }
 function eventosCompletados() {
@@ -428,17 +458,20 @@ function eventosPorFecha() {
 function abrirNuevo(fecha) {
   state.eventoEditando = null;
   state.fechaSeleccionada = fecha || fmtISO(new Date());
+  state.subtareasTemp = [];
   state.modal = "evento";
   render();
 }
 function abrirEditar(ev) {
   state.eventoEditando = ev;
   state.fechaSeleccionada = ev.fecha;
+  state.subtareasTemp = Array.isArray(ev.subtareas) ? ev.subtareas.slice() : [];
   state.modal = "evento";
   render();
 }
 function cerrarModal() {
   state.modal = null;
+  state.subtareasTemp = [];
   render();
 }
 const REPETICION_HORIZONTE = 12; // número de ocurrencias futuras a generar
@@ -621,8 +654,15 @@ function renderControles() {
   }).join("");
 
   return (
-    '<div class="controls">' +
+    '<div class="controls" style="flex-direction:column;align-items:stretch;gap:10px">' +
+      '<div class="search-row">' +
+        '<span style="color:#5C7184">' + icon("search", 15) + '</span>' +
+        '<input class="field" id="campo-busqueda" placeholder="Buscar por título, lugar o notas…" value="' + escapeHTML(state.busqueda) + '" style="border:none;background:transparent;padding:6px 0" />' +
+        (state.busqueda ? '<button id="btn-limpiar-busqueda" style="background:transparent;border:none;color:#8AA0B5;cursor:pointer;display:flex">' + icon("x", 14) + '</button>' : '') +
+      '</div>' +
+      '<div style="display:flex;flex-wrap:wrap;gap:10px;align-items:center;justify-content:space-between">' +
       '<div class="tabgroup">' +
+        '<button class="tabbtn' + (state.vista === "agenda" ? " active" : "") + '" id="tab-agenda">' + icon("list", 15) + ' Agenda</button>' +
         '<button class="tabbtn' + (state.vista === "semana" ? " active" : "") + '" id="tab-semana">' + icon("calendar", 15) + ' Semana</button>' +
         '<button class="tabbtn' + (state.vista === "mes" ? " active" : "") + '" id="tab-mes">' + icon("calendarDays", 15) + ' Mes</button>' +
       '</div>' +
@@ -639,6 +679,7 @@ function renderControles() {
         '<button class="pillbtn cond" id="btn-diagnostico" style="display:flex;align-items:center;gap:6px" title="Estado del modo sin internet">📶 Offline</button>' +
         '<button class="btn-primary cond" id="btn-nuevo-evento">' + icon("plus", 15) + ' Nuevo evento</button>' +
       '</div>' +
+    '</div>' +
     '</div>'
   );
 }
@@ -700,6 +741,7 @@ function renderFilaEvento(ev, vencido) {
           (vencido ? '<span class="meta-vencido mono">VENCIDO</span>' : "") +
           (esMultiDia ? '<span class="mono" style="font-size:10px;color:' + color + ';font-weight:600">' + icon("skip", 9) + ' ' + rangoLabel + '</span>' : "") +
           (ev.repetSerieId ? '<span class="mono" style="font-size:10px;color:#8AA0B5">↻</span>' : "") +
+          (Array.isArray(ev.subtareas) && ev.subtareas.length ? '<span class="mono" style="font-size:10px;color:#8AA0B5">' + icon("list", 9) + ' ' + ev.subtareas.filter(function(s){return s.hecho;}).length + '/' + ev.subtareas.length + '</span>' : "") +
           (ev.responsable ? '<span class="meta-resp cond">' + icon("user", 10) + ' ' + escapeHTML(ev.responsable) + '</span>' : "") +
           (prio ? '<span class="meta-prio cond" style="color:' + prio.color + '">' + prio.label + '</span>' : "") +
         '</div>' +
@@ -717,6 +759,49 @@ function renderFilaEvento(ev, vencido) {
 /* ============================================================
    RENDER — VISTA SEMANA
    ============================================================ */
+/* ============================================================
+   RENDER — VISTA AGENDA (lista simple, próximos días con eventos)
+   ============================================================ */
+function renderVistaAgenda() {
+  const hoy = new Date();
+  const hoyISO = fmtISO(hoy);
+  const porFecha = eventosPorFecha();
+
+  // Próximos 30 días desde hoy, solo se muestran los que tienen al menos un evento.
+  const fechasConEventos = [];
+  for (let i = 0; i < 30; i++) {
+    const iso = fmtISO(addDays(hoy, i));
+    if (porFecha[iso] && porFecha[iso].length) fechasConEventos.push(iso);
+  }
+
+  if (!fechasConEventos.length) {
+    return '<div class="cond" style="text-align:center;padding:40px 20px;color:#5C7184;font-style:italic">' +
+      'No hay eventos próximos. Todo despejado por los próximos 30 días.' +
+    '</div>';
+  }
+
+  let html = '<div style="display:flex;flex-direction:column;gap:14px">';
+  fechasConEventos.forEach(function (iso) {
+    const d = new Date(iso + "T00:00:00");
+    const esHoy = iso === hoyISO;
+    const esManana = iso === fmtISO(addDays(hoy, 1));
+    const evs = porFecha[iso];
+    let etiqueta = DIAS_SEM_FULL[(d.getDay() + 6) % 7] + ", " + d.getDate() + " " + MESES[d.getMonth()].toLowerCase();
+    if (esHoy) etiqueta = "HOY — " + etiqueta;
+    else if (esManana) etiqueta = "MAÑANA — " + etiqueta;
+
+    html +=
+      '<div>' +
+        '<div class="mono" style="font-size:11.5px;font-weight:700;color:' + (esHoy ? "#D99A3D" : "#8AA0B5") + ';letter-spacing:0.5px;margin-bottom:6px;padding-left:2px">' + etiqueta.toUpperCase() + '</div>' +
+        '<div class="daycard' + (esHoy ? " today" : "") + '" style="border-top:3px solid ' + (esHoy ? "#D99A3D" : "#1E3247") + '">' +
+          evs.map(function (ev) { return renderFilaEvento(ev, !ev.completado && ev.fecha < hoyISO); }).join("") +
+        '</div>' +
+      '</div>';
+  });
+  html += '</div>';
+  return html;
+}
+
 function renderVistaSemana() {
   const start = startOfWeek(state.cursor);
   const dias = [];
@@ -808,6 +893,20 @@ function renderVistaMes() {
 /* ============================================================
    RENDER — MODALES
    ============================================================ */
+function renderSubtareasTempHtml() {
+  const items = state.subtareasTemp || [];
+  if (!items.length) {
+    return '<div class="cond" style="font-size:12px;color:#5C7184;font-style:italic">Sin sub-tareas.</div>';
+  }
+  return items.map(function (st) {
+    return '<div style="display:flex;align-items:center;gap:8px">' +
+      '<button data-subtarea-toggle="' + st.id + '" style="width:16px;height:16px;min-width:16px;border-radius:4px;border:1.5px solid #5FE3A1;background:' + (st.hecho ? "#5FE3A1" : "transparent") + ';cursor:pointer;padding:0"></button>' +
+      '<span class="cond" style="flex:1;font-size:13px;color:#C9D2DA;' + (st.hecho ? "text-decoration:line-through;opacity:0.6" : "") + '">' + escapeHTML(st.texto) + '</span>' +
+      '<button data-subtarea-quitar="' + st.id + '" style="background:transparent;border:none;color:#8AA0B5;cursor:pointer;display:flex">' + icon("x", 13) + '</button>' +
+    '</div>';
+  }).join("");
+}
+
 function renderModalEvento() {
   const ev = state.eventoEditando;
   const fecha = (ev && ev.fecha) || state.fechaSeleccionada;
@@ -824,6 +923,7 @@ function renderModalEvento() {
   const notas = (ev && ev.notas) || "";
   const titulo = (ev && ev.titulo) || "";
   const repetir = (ev && ev.repetir) || "nunca";
+  if (!Array.isArray(state.subtareasTemp)) state.subtareasTemp = [];
 
   const catOptions = state.categorias.map(function (c) {
     return '<option value="' + c.id + '"' + (categoria === c.id ? " selected" : "") + '>' + escapeHTML(c.label) + '</option>';
@@ -863,6 +963,15 @@ function renderModalEvento() {
           '<div class="modal-title mono">' + (ev ? "EDITAR EVENTO" : "NUEVO EVENTO") + '</div>' +
           '<button class="iconbtn" data-action="cerrar-modal">' + icon("x", 16) + '</button>' +
         '</div>' +
+        (!ev && state.plantillas.length ? (
+          '<div class="campo">' +
+            '<label class="campo-label mono">' + icon("layers", 11) + ' USAR PLANTILLA (OPCIONAL)</label>' +
+            '<select class="field" id="ev-plantilla">' +
+              '<option value="">— Empezar en blanco —</option>' +
+              state.plantillas.map(function (p) { return '<option value="' + p.id + '">' + escapeHTML(p.nombre) + '</option>'; }).join("") +
+            '</select>' +
+          '</div>'
+        ) : "") +
         '<div class="campo"><label class="campo-label mono">TÍTULO</label>' +
           '<input class="field" id="ev-titulo" value="' + escapeHTML(titulo) + '" placeholder="Ej: Reunión de coordinación CIC" /></div>' +
         '<div class="row-gap">' +
@@ -888,6 +997,14 @@ function renderModalEvento() {
         '</div>' +
         '<div class="campo"><label class="campo-label mono">PRIORIDAD</label><div class="prio-row" id="prio-row">' + prioButtons + '</div></div>' +
         '<div class="campo"><label class="campo-label mono">LUGAR (OPCIONAL)</label><input class="field" id="ev-lugar" value="' + escapeHTML(lugar) + '" placeholder="Ej: Puente, CIC, Cámara de oficiales" /></div>' +
+        '<div class="campo">' +
+          '<label class="campo-label mono">SUB-TAREAS (OPCIONAL)</label>' +
+          '<div id="subtareas-lista" style="display:flex;flex-direction:column;gap:6px;margin-bottom:8px">' + renderSubtareasTempHtml() + '</div>' +
+          '<div style="display:flex;gap:6px">' +
+            '<input class="field" id="nueva-subtarea" placeholder="Ej: Verificar combustible…" style="flex:1" />' +
+            '<button class="cond" id="btn-add-subtarea" style="padding:0 14px;border-radius:7px;border:none;background:#5FE3A1;color:#0B1B2B;font-weight:700;cursor:pointer">+</button>' +
+          '</div>' +
+        '</div>' +
         '<div class="campo"><label class="campo-label mono">NOTAS (OPCIONAL)</label><textarea class="field" id="ev-notas" rows="3">' + escapeHTML(notas) + '</textarea></div>' +
         '<div id="ev-error"></div>' +
         '<div class="modal-actions">' +
@@ -912,6 +1029,30 @@ function renderModalCategorias() {
     return '<div class="chip cond">' + escapeHTML(r) + '<button data-action="del-responsable" data-nombre="' + escapeHTML(r) + '">' + icon("x", 12) + '</button></div>';
   }).join("");
 
+  // Resumen de carga: pendientes (no completados, sin importar fecha) por responsable.
+  const pendientesPorResp = {};
+  state.eventos.filter(function (e) { return !e.completado; }).forEach(function (e) {
+    const r = e.responsable || "— Sin asignar —";
+    pendientesPorResp[r] = (pendientesPorResp[r] || 0) + 1;
+  });
+  const cargaOrdenada = Object.keys(pendientesPorResp).sort(function (a, b) { return pendientesPorResp[b] - pendientesPorResp[a]; });
+  const maxCarga = cargaOrdenada.length ? pendientesPorResp[cargaOrdenada[0]] : 1;
+  const cargaHtml = cargaOrdenada.length === 0
+    ? '<div class="cond" style="font-size:12px;color:#5C7184;font-style:italic">Sin tareas pendientes asignadas.</div>'
+    : cargaOrdenada.map(function (r) {
+        const n = pendientesPorResp[r];
+        const pct = Math.round((n / maxCarga) * 100);
+        const colorBarra = n >= 5 ? "#E0524A" : n >= 3 ? "#D99A3D" : "#5FE3A1";
+        return '<div style="margin-bottom:8px">' +
+          '<div class="cond" style="display:flex;justify-content:space-between;font-size:12.5px;color:#C9D2DA;margin-bottom:3px">' +
+            '<span>' + escapeHTML(r) + '</span><span class="mono" style="color:' + colorBarra + ';font-weight:700">' + n + '</span>' +
+          '</div>' +
+          '<div style="height:5px;background:#0B1B2B;border-radius:3px;overflow:hidden">' +
+            '<div style="height:100%;width:' + pct + '%;background:' + colorBarra + '"></div>' +
+          '</div>' +
+        '</div>';
+      }).join("");
+
   return (
     '<div class="overlay" id="overlay-categorias">' +
       '<div class="modal wide">' +
@@ -919,6 +1060,8 @@ function renderModalCategorias() {
           '<div class="modal-title mono">CATEGORÍAS Y RESPONSABLES</div>' +
           '<button class="iconbtn" data-action="cerrar-modal">' + icon("x", 16) + '</button>' +
         '</div>' +
+        '<div class="mono" style="font-size:10.5px;color:#8AA0B5;letter-spacing:0.5px;margin-bottom:8px">' + icon("users", 11) + ' CARGA POR RESPONSABLE (PENDIENTES)</div>' +
+        '<div style="margin-bottom:18px;padding:12px;background:#0B1B2B;border:1px solid #1E3247;border-radius:8px">' + cargaHtml + '</div>' +
         '<div class="mono" style="font-size:10.5px;color:#8AA0B5;letter-spacing:0.5px;margin-bottom:6px">CATEGORÍAS</div>' +
         '<div style="display:flex;flex-direction:column;margin-bottom:14px">' + catRows + '</div>' +
         '<div style="display:flex;gap:6px;margin-bottom:20px">' +
@@ -1052,6 +1195,16 @@ function renderModalDiagnostico() {
         resumenHtml +
         '<button class="cond" id="btn-reintentar-cache" style="margin-top:14px;width:100%;padding:10px;border-radius:7px;border:1px solid #2A3F54;background:transparent;color:#C9D2DA;font-size:13px;cursor:pointer">Reintentar guardado en caché</button>' +
         '<div class="cond" style="margin-top:10px;font-size:11px;color:#5C7184;line-height:1.5">Si el primer recuadro está en rojo (❌), abre esta página con internet activo, espera a que el segundo y tercer recuadro se pongan en verde, y luego vuelve a intentar sin conexión.</div>' +
+        '<div style="margin-top:20px;padding-top:16px;border-top:1px solid #1E3247">' +
+          '<div class="mono" style="font-size:10.5px;color:#8AA0B5;letter-spacing:0.5px;margin-bottom:10px">RESPALDO DE DATOS</div>' +
+          '<div class="cond" style="font-size:11.5px;color:#8AA0B5;line-height:1.5;margin-bottom:10px">Guarda una copia de todos tus eventos, categorías y responsables en un archivo. Útil antes de borrar caché del navegador o cambiar de teléfono.</div>' +
+          '<div style="display:flex;gap:8px">' +
+            '<button class="cond" id="btn-exportar-respaldo" style="flex:1;display:flex;align-items:center;justify-content:center;gap:6px;padding:9px;border-radius:7px;border:1px solid #5FE3A1;background:transparent;color:#5FE3A1;font-size:12.5px;font-weight:600;cursor:pointer">' + icon("download2", 14) + ' Descargar respaldo</button>' +
+            '<button class="cond" id="btn-importar-respaldo" style="flex:1;display:flex;align-items:center;justify-content:center;gap:6px;padding:9px;border-radius:7px;border:1px solid #D99A3D;background:transparent;color:#D99A3D;font-size:12.5px;font-weight:600;cursor:pointer">' + icon("upload", 14) + ' Restaurar respaldo</button>' +
+          '</div>' +
+          '<input type="file" id="input-archivo-respaldo" accept="application/json" style="display:none" />' +
+          '<div id="respaldo-mensaje" class="cond" style="margin-top:8px;font-size:12px"></div>' +
+        '</div>' +
       '</div>' +
     '</div>'
   );
@@ -1100,8 +1253,8 @@ function render() {
   const html =
     renderTopbar() +
     renderControles() +
-    renderNavTemporal() +
-    '<div class="view-area">' + (state.vista === "semana" ? renderVistaSemana() : renderVistaMes()) + '</div>' +
+    (state.vista === "agenda" ? "" : renderNavTemporal()) +
+    '<div class="view-area">' + (state.vista === "agenda" ? renderVistaAgenda() : state.vista === "semana" ? renderVistaSemana() : renderVistaMes()) + '</div>' +
     fab +
     modalHtml +
     confirmHtml;
@@ -1136,8 +1289,10 @@ function bindEvents() {
   }
 
   // Tabs
+  const tabAgenda = document.getElementById("tab-agenda");
   const tabSemana = document.getElementById("tab-semana");
   const tabMes = document.getElementById("tab-mes");
+  if (tabAgenda) tabAgenda.onclick = function () { state.vista = "agenda"; render(); };
   if (tabSemana) tabSemana.onclick = function () { state.vista = "semana"; render(); };
   if (tabMes) tabMes.onclick = function () { state.vista = "mes"; render(); };
 
@@ -1146,6 +1301,23 @@ function bindEvents() {
   if (filtroSel) filtroSel.onchange = function (e) { state.filtroCategoria = e.target.value; render(); };
   const filtroResp = document.getElementById("filtro-responsable");
   if (filtroResp) filtroResp.onchange = function (e) { state.filtroResponsable = e.target.value; render(); };
+
+  const campoBusqueda = document.getElementById("campo-busqueda");
+  if (campoBusqueda) {
+    campoBusqueda.oninput = function (e) {
+      state.busqueda = e.target.value;
+      render();
+      // Restaurar foco y posición del cursor tras el re-render (el input se reconstruye en el DOM).
+      const nuevoInput = document.getElementById("campo-busqueda");
+      if (nuevoInput) {
+        nuevoInput.focus();
+        const pos = nuevoInput.value.length;
+        if (nuevoInput.setSelectionRange) nuevoInput.setSelectionRange(pos, pos);
+      }
+    };
+  }
+  const btnLimpiarBusqueda = document.getElementById("btn-limpiar-busqueda");
+  if (btnLimpiarBusqueda) btnLimpiarBusqueda.onclick = function () { state.busqueda = ""; render(); };
 
   // Botones top
   const btnCategorias = document.getElementById("btn-categorias");
@@ -1237,6 +1409,48 @@ function bindEvents() {
 
   /* ---------- Modal evento: lógica específica ---------- */
   if (state.modal === "evento") {
+    const plantillaSel = document.getElementById("ev-plantilla");
+    if (plantillaSel) {
+      plantillaSel.onchange = function (e) {
+        const p = state.plantillas.find(function (pl) { return pl.id === e.target.value; });
+        if (!p) return;
+        const ti = document.getElementById("ev-titulo"); if (ti) ti.value = p.titulo || "";
+        const ho = document.getElementById("ev-hora"); if (ho) ho.value = p.hora || "08:00";
+        const ca = document.getElementById("ev-categoria"); if (ca && p.categoria) ca.value = p.categoria;
+        const lu = document.getElementById("ev-lugar"); if (lu) lu.value = p.lugar || "";
+        const dh = document.getElementById("ev-dur-horas");
+        const dm = document.getElementById("ev-dur-minutos");
+        if (dh && dm) {
+          const dur = p.duracion || 30;
+          dh.value = Math.floor(dur / 60);
+          dm.value = dur % 60;
+        }
+        // Responsable: si está en la lista predefinida, lo selecciona; si no, no fuerza nada.
+        const respSelect = document.getElementById("ev-responsable");
+        if (respSelect && p.responsable && state.responsables.indexOf(p.responsable) !== -1) {
+          respSelect.value = p.responsable;
+        }
+        // Prioridad: actualizar visualmente los botones de prioridad.
+        const prioRowEl = document.getElementById("prio-row");
+        if (prioRowEl && p.prioridad) {
+          prioRowEl.dataset.value = p.prioridad;
+          prioRowEl.querySelectorAll(".prio-btn").forEach(function (b2) {
+            const pid = b2.getAttribute("data-prio");
+            const pr = prioById(pid);
+            const active = pid === p.prioridad;
+            b2.style.background = active ? pr.color : "transparent";
+            b2.style.color = active ? "#0B1B2B" : pr.color;
+          });
+        }
+        // Refrescar la hora de término mostrada.
+        const terminoLabel = document.getElementById("ev-hora-termino");
+        if (terminoLabel && ho && dh && dm) {
+          const durTotal = (Number(dh.value) || 0) * 60 + (Number(dm.value) || 0);
+          terminoLabel.textContent = "Término: " + calcularHoraTermino(ho.value, durTotal);
+        }
+      };
+    }
+
     const fechaInicioInput = document.getElementById("ev-fecha");
     const fechaFinInput = document.getElementById("ev-fecha-fin");
     if (fechaInicioInput && fechaFinInput) {
@@ -1259,6 +1473,59 @@ function bindEvents() {
     if (horaInput) horaInput.onchange = actualizarHoraTermino;
     if (horasSel) horasSel.onchange = actualizarHoraTermino;
     if (minutosSel) minutosSel.onchange = actualizarHoraTermino;
+
+    // Subtareas: agregar, togglear, quitar (manteniendo el resto del formulario
+    // intacto, re-renderizando solo lo necesario para no perder lo escrito).
+    function refrescarFormularioTrasSubtarea() {
+      // Antes de re-renderizar, capturamos el valor actual de los campos del
+      // formulario para no perderlos al reconstruir el HTML del modal.
+      const snapshot = {
+        titulo: (document.getElementById("ev-titulo") || {}).value,
+        fecha: (document.getElementById("ev-fecha") || {}).value,
+        fechaFin: (document.getElementById("ev-fecha-fin") || {}).value,
+        hora: (document.getElementById("ev-hora") || {}).value,
+        lugar: (document.getElementById("ev-lugar") || {}).value,
+        notas: (document.getElementById("ev-notas") || {}).value,
+      };
+      render();
+      const ti = document.getElementById("ev-titulo"); if (ti && snapshot.titulo !== undefined) ti.value = snapshot.titulo;
+      const fi = document.getElementById("ev-fecha"); if (fi && snapshot.fecha) fi.value = snapshot.fecha;
+      const ff = document.getElementById("ev-fecha-fin"); if (ff && snapshot.fechaFin) ff.value = snapshot.fechaFin;
+      const hi = document.getElementById("ev-hora"); if (hi && snapshot.hora) hi.value = snapshot.hora;
+      const lu = document.getElementById("ev-lugar"); if (lu && snapshot.lugar !== undefined) lu.value = snapshot.lugar;
+      const no = document.getElementById("ev-notas"); if (no && snapshot.notas !== undefined) no.value = snapshot.notas;
+    }
+
+    const btnAddSubtarea = document.getElementById("btn-add-subtarea");
+    const nuevaSubtareaInput = document.getElementById("nueva-subtarea");
+    function agregarSubtareaTemp() {
+      const texto = nuevaSubtareaInput ? nuevaSubtareaInput.value.trim() : "";
+      if (!texto) return;
+      state.subtareasTemp.push({ id: uid(), texto: texto, hecho: false });
+      refrescarFormularioTrasSubtarea();
+      const ns = document.getElementById("nueva-subtarea");
+      if (ns) ns.focus();
+    }
+    if (btnAddSubtarea) btnAddSubtarea.onclick = agregarSubtareaTemp;
+    if (nuevaSubtareaInput) {
+      nuevaSubtareaInput.onkeydown = function (e) { if (e.key === "Enter") { e.preventDefault(); agregarSubtareaTemp(); } };
+    }
+    document.querySelectorAll("[data-subtarea-toggle]").forEach(function (btn) {
+      btn.onclick = function () {
+        const id = btn.getAttribute("data-subtarea-toggle");
+        state.subtareasTemp = state.subtareasTemp.map(function (st) {
+          return st.id === id ? Object.assign({}, st, { hecho: !st.hecho }) : st;
+        });
+        refrescarFormularioTrasSubtarea();
+      };
+    });
+    document.querySelectorAll("[data-subtarea-quitar]").forEach(function (btn) {
+      btn.onclick = function () {
+        const id = btn.getAttribute("data-subtarea-quitar");
+        state.subtareasTemp = state.subtareasTemp.filter(function (st) { return st.id !== id; });
+        refrescarFormularioTrasSubtarea();
+      };
+    });
 
     const respSel = document.getElementById("ev-responsable");
     if (respSel) {
@@ -1334,7 +1601,7 @@ function bindEvents() {
         guardarEvento({
           titulo: titulo.trim(), fecha: fecha, fechaFin: fechaFin, hora: hora, duracion: duracion,
           repetir: repetir, categoria: categoria, responsable: (responsable || "").trim(), prioridad: prioridad || "media",
-          lugar: lugar.trim(), notas: notas.trim(),
+          lugar: lugar.trim(), notas: notas.trim(), subtareas: state.subtareasTemp.slice(),
           completado: (state.eventoEditando && state.eventoEditando.completado) || false,
         });
       };
@@ -1418,6 +1685,62 @@ function bindEvents() {
           window.swEstado.error = "Error al reintentar: " + err.message;
           render();
         });
+      };
+    }
+
+    const btnExportar = document.getElementById("btn-exportar-respaldo");
+    if (btnExportar) {
+      btnExportar.onclick = function () {
+        const respaldo = {
+          tipo: "respaldo-bitacora-operativa",
+          version: 1,
+          fechaExportacion: new Date().toISOString(),
+          eventos: state.eventos,
+          categorias: state.categorias,
+          responsables: state.responsables,
+        };
+        const blob = new Blob([JSON.stringify(respaldo, null, 2)], { type: "application/json" });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        const hoyStr = fmtISO(new Date());
+        a.download = "respaldo_bitacora_" + hoyStr + ".json";
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+        const msg = document.getElementById("respaldo-mensaje");
+        if (msg) { msg.style.color = "#5FE3A1"; msg.textContent = "✅ Respaldo descargado."; }
+      };
+    }
+
+    const inputArchivo = document.getElementById("input-archivo-respaldo");
+    const btnImportar = document.getElementById("btn-importar-respaldo");
+    if (btnImportar && inputArchivo) {
+      btnImportar.onclick = function () { inputArchivo.click(); };
+      inputArchivo.onchange = function (e) {
+        const file = e.target.files && e.target.files[0];
+        if (!file) return;
+        const reader = new FileReader();
+        reader.onload = function (ev) {
+          const msg = document.getElementById("respaldo-mensaje");
+          try {
+            const data = JSON.parse(ev.target.result);
+            if (!data || !Array.isArray(data.eventos)) {
+              throw new Error("El archivo no tiene el formato esperado.");
+            }
+            state.eventos = data.eventos;
+            if (Array.isArray(data.categorias) && data.categorias.length) state.categorias = data.categorias;
+            if (Array.isArray(data.responsables) && data.responsables.length) state.responsables = data.responsables;
+            persist();
+            if (msg) { msg.style.color = "#5FE3A1"; msg.textContent = "✅ Respaldo restaurado: " + data.eventos.length + " eventos cargados."; }
+            render();
+          } catch (err) {
+            if (msg) { msg.style.color = "#E0524A"; msg.textContent = "❌ No se pudo leer el archivo: " + err.message; }
+            render();
+          }
+        };
+        reader.readAsText(file);
       };
     }
   }
