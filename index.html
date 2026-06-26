@@ -46,6 +46,29 @@
   .stat-num { font-size: 18px; font-weight: 700; }
   .stat-label { color: #8AA0B5; font-size: 11px; letter-spacing: 0.5px; }
 
+  .seccion-nav {
+    display: flex; gap: 0; background: #0A1622; border-bottom: 1px solid #1E3247;
+    padding: 0 12px; overflow-x: auto;
+  }
+  .seccion-btn {
+    display: flex; align-items: center; gap: 6px; padding: 11px 16px; border: none; background: transparent;
+    color: #8AA0B5; font-size: 13px; font-weight: 600; cursor: pointer; white-space: nowrap;
+    border-bottom: 2px solid transparent; font-family: -apple-system, system-ui, sans-serif;
+  }
+  .seccion-btn.active { color: #D99A3D; border-bottom-color: #D99A3D; }
+
+  .persona-card {
+    display: flex; align-items: center; justify-content: space-between; gap: 12px;
+    background: #0E2235; border: 1px solid #1E3247; border-radius: 10px; padding: 14px 16px; cursor: pointer;
+  }
+  .hecho-card {
+    background: #0E2235; border: 1px solid #1E3247; border-radius: 8px; padding: 12px 14px;
+  }
+  .deleg-card {
+    display: flex; align-items: center; justify-content: space-between; gap: 12px;
+    background: #0E2235; border: 1px solid #1E3247; border-radius: 10px; padding: 12px 14px; cursor: pointer;
+  }
+
   .iconbtn {
     background: transparent; border: 1px solid #2A3F54; border-radius: 6px; color: #8AA0B5;
     width: 28px; height: 28px; display: flex; align-items: center; justify-content: center; cursor: pointer;
@@ -126,7 +149,7 @@
   .month-cell-num { font-size: 13px; font-weight: 500; color: #8AA0B5; text-align: right; }
   .month-cell-num.today { font-weight: 700; color: #D99A3D; }
   .month-evt { font-size: 12px; line-height: 1.35; color: #C9D2DA; padding: 3px 5px 3px 7px; border-radius: 3px; white-space: normal; overflow-wrap: break-word; border-left: 5px solid; }
-  .month-evt.done { text-decoration: line-through; }
+  .month-evt.done { text-decoration: line-through; opacity: 0.55; }
   .month-more { font-size: 10.5px; color: #5C7184; font-family: ui-monospace, monospace; padding-top: 1px; }
 
   .fab {
@@ -192,6 +215,7 @@ const ICONS = {
   download: '<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/>',
   chevronLeft: '<polyline points="15 18 9 12 15 6"/>',
   chevronRight: '<polyline points="9 18 15 12 9 6"/>',
+  chevronDown: '<polyline points="6 9 12 15 18 9"/>',
   trash: '<polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/>',
   edit: '<path d="M17 3a2.85 2.85 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/>',
   tag: '<path d="M20.59 13.41 13 21l-9-9V3h9z"/><circle cx="7" cy="7" r="1.2" fill="currentColor"/>',
@@ -263,12 +287,6 @@ const CATEGORIAS_DEFAULT = [
   { id: "cic", label: "EJERCICIO CIC", color: "#C97FE0" },
 ];
 const RESPONSABLES_DEFAULT = ["OFOPER", "PWO-A", "PWO-U", "CONDESTABLE", "SATOPER", "INSTRUCCIÓN", "T1 MILLÓN", "T1 CORTHORN", "T2 BRITO"];
-const PLANTILLAS_DEFAULT = [
-  { id: "guardia-cic", nombre: "Guardia CIC", titulo: "Guardia CIC", categoria: "cic", hora: "08:00", duracion: 240, responsable: "PWO-A", prioridad: "media", lugar: "CIC" },
-  { id: "ejercicio-semanal", nombre: "Ejercicio semanal", titulo: "Ejercicio semanal de combate", categoria: "cic", hora: "10:00", duracion: 90, responsable: "OFOPER", prioridad: "alta", lugar: "CIC" },
-  { id: "reunion-coord", nombre: "Reunión de coordinación", titulo: "Reunión de coordinación", categoria: "reunion", hora: "09:00", duracion: 60, responsable: "OFOPER", prioridad: "media", lugar: "Cámara de oficiales" },
-  { id: "navegacion-transito", nombre: "Navegación de tránsito", titulo: "Navegación de tránsito", categoria: "navegacion", hora: "06:00", duracion: 480, responsable: "OFOPER", prioridad: "alta", lugar: "Puente" },
-];
 const PRIORIDADES = [
   { id: "alta", label: "ALTA", color: "#E0524A" },
   { id: "media", label: "MEDIA", color: "#D99A3D" },
@@ -279,7 +297,9 @@ const PRIORIDADES = [
 const STORAGE_KEY = "bitacora:eventos";
 const CAT_KEY = "bitacora:categorias";
 const RESP_KEY = "bitacora:responsables";
-const PLANT_KEY = "bitacora:plantillas";
+const PERSONAL_KEY = "bitacora:personal";
+const HECHOS_KEY = "bitacora:hechos";
+const DELEG_KEY = "bitacora:delegaciones";
 
 function loadLocal(key, fallback) {
   try {
@@ -364,12 +384,26 @@ function downloadICSBatch(eventos, nombre) {
    ESTADO GLOBAL
    ============================================================ */
 const state = {
+  seccion: "calendario", // "calendario" | "personal" | "delegacion"
   vista: "semana",
   cursor: new Date(),
   eventos: loadLocal(STORAGE_KEY, []),
   categorias: loadLocal(CAT_KEY, CATEGORIAS_DEFAULT),
   responsables: loadLocal(RESP_KEY, RESPONSABLES_DEFAULT),
-  plantillas: loadLocal(PLANT_KEY, PLANTILLAS_DEFAULT),
+  personal: loadLocal(PERSONAL_KEY, []),
+  hechos: loadLocal(HECHOS_KEY, []),
+  personaSeleccionada: null,
+  modalPersonal: null, // 'persona' | 'hecho' | 'confirmarEliminarPersona' | 'confirmarEliminarHecho'
+  personaEditando: null,
+  hechoEditando: null,
+  eliminarPersonaPendienteId: null,
+  eliminarHechoPendienteId: null,
+  modalDelegacion: null, // 'tarea' | 'confirmarEliminarTarea'
+  delegacionEditando: null,
+  eliminarDelegacionPendienteId: null,
+  filtroEstadoDelegacion: "todas",
+  ocultarDelegacionesCompletadas: false,
+  diasColapsados: {},
   filtroCategoria: "todas",
   filtroResponsable: "todos",
   busqueda: "",
@@ -384,8 +418,34 @@ function persist() {
   saveLocal(STORAGE_KEY, state.eventos);
   saveLocal(CAT_KEY, state.categorias);
   saveLocal(RESP_KEY, state.responsables);
-  saveLocal(PLANT_KEY, state.plantillas);
+  saveLocal(PERSONAL_KEY, state.personal);
+  saveLocal(HECHOS_KEY, state.hechos);
 }
+
+// Migración única: las versiones anteriores guardaban las tareas delegadas en una
+// lista separada (bitacora:delegaciones). Ahora viven como eventos normales con
+// responsable asignado, así que las convertimos una sola vez y limpiamos la clave vieja.
+function migrarDelegacionesViejas() {
+  const viejas = loadLocal(DELEG_KEY, null);
+  if (!viejas || !Array.isArray(viejas) || viejas.length === 0) return;
+  viejas.forEach(function (d) {
+    state.eventos.push({
+      id: d.id || uid(),
+      titulo: d.tarea || "Tarea delegada",
+      fecha: d.fechaLimite || fmtISO(new Date()),
+      fechaFin: d.fechaLimite || fmtISO(new Date()),
+      hora: "", duracion: 30,
+      categoria: (state.categorias[0] || {}).id || "tarea",
+      responsable: d.responsable || "",
+      prioridad: "media", lugar: "", notas: "", subtareas: [],
+      estadoDelegacion: d.estado || "no_iniciada",
+      completado: d.estado === "lista",
+    });
+  });
+  persist();
+  try { localStorage.removeItem(DELEG_KEY); } catch (e) {}
+}
+migrarDelegacionesViejas();
 
 function catById(id) {
   return state.categorias.find(function (c) { return c.id === id; }) || null;
@@ -409,9 +469,9 @@ function inicialCategoria(cat) {
 }
 
 function eventosVisibles() {
-  // Las tareas completadas no se muestran en semana/mes/detalle de día;
-  // viven en su propio listado "Tareas Completadas".
-  let base = state.eventos.filter(function (e) { return !e.completado; });
+  // Las tareas completadas SÍ se muestran en semana/mes (tachadas, más oscuras);
+  // el listado "Tareas Completadas" sigue existiendo como vista de archivo histórico.
+  let base = state.eventos.slice();
   if (state.filtroCategoria !== "todas") {
     base = base.filter(function (e) { return e.categoria === state.filtroCategoria; });
   }
@@ -605,12 +665,684 @@ function eliminarResponsable(nombre) {
 /* ============================================================
    RENDER — TOPBAR
    ============================================================ */
+/* ============================================================
+   SECCIÓN PERSONAL — feedback y constancias por persona
+   ============================================================ */
+const TIPOS_HECHO = [
+  { id: "positivo", label: "HECHO POSITIVO", color: "#5FE3A1" },
+  { id: "negativo", label: "HECHO NEGATIVO", color: "#E0524A" },
+  { id: "constancia", label: "CONSTANCIA", color: "#6FA8D9" },
+];
+function tipoHechoById(id) {
+  return TIPOS_HECHO.find(function (t) { return t.id === id; }) || TIPOS_HECHO[2];
+}
+function hechosDePersona(personaId) {
+  return state.hechos
+    .filter(function (h) { return h.personaId === personaId; })
+    .sort(function (a, b) { return b.fecha.localeCompare(a.fecha); });
+}
+
+function renderSeccionPersonal() {
+  if (state.personaSeleccionada) {
+    return renderFichaPersona(state.personaSeleccionada);
+  }
+
+  const personas = state.personal;
+  const listaHtml = personas.length === 0
+    ? '<div class="cond" style="text-align:center;padding:50px 20px;color:#5C7184;font-style:italic">Aún no has agregado personas para seguimiento de feedback.</div>'
+    : personas.map(function (p) {
+        const hechos = hechosDePersona(p.id);
+        const positivos = hechos.filter(function (h) { return h.tipo === "positivo"; }).length;
+        const negativos = hechos.filter(function (h) { return h.tipo === "negativo"; }).length;
+        const constancias = hechos.filter(function (h) { return h.tipo === "constancia"; }).length;
+        return (
+          '<div class="persona-card" data-action="abrir-persona" data-id="' + p.id + '">' +
+            '<div style="flex:1;min-width:0">' +
+              '<div class="cond" style="font-size:15px;font-weight:600;color:#E4EAEF">' + escapeHTML(p.nombre) + '</div>' +
+              '<div class="cond" style="font-size:12px;color:#8AA0B5;margin-top:2px">' + escapeHTML(p.cargo || "—") + '</div>' +
+            '</div>' +
+            '<div style="display:flex;gap:12px;align-items:center">' +
+              '<span class="mono" style="font-size:12px;color:#5FE3A1" title="Hechos positivos">+' + positivos + '</span>' +
+              '<span class="mono" style="font-size:12px;color:#E0524A" title="Hechos negativos">-' + negativos + '</span>' +
+              '<span class="mono" style="font-size:12px;color:#6FA8D9" title="Constancias">' + constancias + '</span>' +
+              '<span style="color:#5C7184">' + icon("chevronRight", 16) + '</span>' +
+            '</div>' +
+          '</div>'
+        );
+      }).join("");
+
+  return (
+    '<div style="padding:18px">' +
+      '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">' +
+        '<div class="mono" style="font-size:13px;color:#D99A3D;letter-spacing:1px;font-weight:600">SEGUIMIENTO DE PERSONAL</div>' +
+        '<button class="btn-primary cond" id="btn-nueva-persona">' + icon("plus", 15) + ' Agregar persona</button>' +
+      '</div>' +
+      '<div style="display:flex;flex-direction:column;gap:8px">' + listaHtml + '</div>' +
+    '</div>' +
+    (state.modalPersonal === "persona" ? renderModalPersona() : "") +
+    (state.modalPersonal === "confirmarEliminarPersona" ? renderModalConfirmarEliminarGenerico(
+        "¿Eliminar a esta persona?", "Se eliminará también todo su historial de hechos registrados. Esta acción no se puede deshacer.",
+        "btn-cancelar-eliminar-persona", "btn-confirmar-eliminar-persona"
+      ) : "")
+  );
+}
+
+function renderFichaPersona(personaId) {
+  const persona = state.personal.find(function (p) { return p.id === personaId; });
+  if (!persona) { state.personaSeleccionada = null; return renderSeccionPersonal(); }
+
+  const hechos = hechosDePersona(personaId);
+  const filtro = state.filtroTipoHecho || "todos";
+  const hechosFiltrados = filtro === "todos" ? hechos : hechos.filter(function (h) { return h.tipo === filtro; });
+
+  const hechosHtml = hechosFiltrados.length === 0
+    ? '<div class="cond" style="text-align:center;padding:30px 20px;color:#5C7184;font-style:italic">Sin hechos registrados' + (filtro !== "todos" ? " de este tipo" : "") + '.</div>'
+    : hechosFiltrados.map(function (h) {
+        const tipo = tipoHechoById(h.tipo);
+        const d = new Date(h.fecha + "T00:00:00");
+        const fechaLabel = d.getDate() + " " + MESES_ABR[d.getMonth()] + " " + d.getFullYear();
+        return (
+          '<div class="hecho-card" style="border-left:6px solid ' + tipo.color + '">' +
+            '<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px">' +
+              '<div style="flex:1;min-width:0">' +
+                '<div class="mono" style="font-size:10px;color:' + tipo.color + ';font-weight:700;letter-spacing:0.5px;margin-bottom:4px">' + tipo.label + ' · ' + fechaLabel + '</div>' +
+                '<div class="cond" style="font-size:13.5px;color:#E4EAEF;line-height:1.4">' + escapeHTML(h.descripcion) + '</div>' +
+              '</div>' +
+              '<div style="display:flex;gap:4px;flex-shrink:0">' +
+                '<button class="iconbtn-sm" data-action="editar-hecho" data-id="' + h.id + '" title="Editar">' + icon("edit", 13) + '</button>' +
+                '<button class="iconbtn-sm" data-action="eliminar-hecho" data-id="' + h.id + '" title="Eliminar">' + icon("trash", 13) + '</button>' +
+              '</div>' +
+            '</div>' +
+          '</div>'
+        );
+      }).join("");
+
+  const filtroBtns = [{ id: "todos", label: "Todos" }].concat(TIPOS_HECHO.map(function (t) { return { id: t.id, label: t.label }; }))
+    .map(function (f) {
+      const active = filtro === f.id;
+      const colorF = f.id === "todos" ? "#8AA0B5" : tipoHechoById(f.id).color;
+      return '<button class="cond" data-action="filtro-tipo-hecho" data-tipo="' + f.id + '" style="padding:6px 12px;border-radius:6px;border:1px solid ' + colorF + ';background:' + (active ? colorF : "transparent") + ';color:' + (active ? "#0B1B2B" : colorF) + ';font-size:11.5px;font-weight:600;cursor:pointer;white-space:nowrap">' + f.label + '</button>';
+    }).join("");
+
+  return (
+    '<div style="padding:18px">' +
+      '<button class="cond" id="btn-volver-personal" style="display:flex;align-items:center;gap:6px;background:transparent;border:none;color:#8AA0B5;font-size:13px;cursor:pointer;margin-bottom:14px;padding:0">' + icon("chevronLeft", 16) + ' Volver a Personal</button>' +
+      '<div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:16px">' +
+        '<div>' +
+          '<div class="cond" style="font-size:19px;font-weight:700;color:#E4EAEF">' + escapeHTML(persona.nombre) + '</div>' +
+          '<div class="cond" style="font-size:13px;color:#8AA0B5;margin-top:2px">' + escapeHTML(persona.cargo || "—") + '</div>' +
+        '</div>' +
+        '<div style="display:flex;gap:6px">' +
+          '<button class="iconbtn" id="btn-editar-persona" title="Editar datos">' + icon("edit", 14) + '</button>' +
+          '<button class="iconbtn" id="btn-eliminar-persona" title="Eliminar persona">' + icon("trash", 14) + '</button>' +
+        '</div>' +
+      '</div>' +
+      '<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:14px">' + filtroBtns + '</div>' +
+      '<button class="btn-primary cond" id="btn-nuevo-hecho" style="width:100%;justify-content:center;margin-bottom:16px">' + icon("plus", 15) + ' Registrar hecho</button>' +
+      '<div style="display:flex;flex-direction:column;gap:8px">' + hechosHtml + '</div>' +
+    '</div>' +
+    (state.modalPersonal === "hecho" ? renderModalHecho() : "") +
+    (state.modalPersonal === "confirmarEliminarHecho" ? renderModalConfirmarEliminarGenerico(
+        "¿Eliminar este hecho?", "Esta acción no se puede deshacer.",
+        "btn-cancelar-eliminar-hecho", "btn-confirmar-eliminar-hecho"
+      ) : "")
+  );
+}
+
+function renderModalPersona() {
+  const p = state.personaEditando;
+  const nombre = (p && p.nombre) || "";
+  const cargo = (p && p.cargo) || "";
+  return (
+    '<div class="overlay" id="overlay-persona">' +
+      '<div class="modal" style="max-width:380px">' +
+        '<div class="modal-head">' +
+          '<div class="modal-title mono">' + (p ? "EDITAR PERSONA" : "NUEVA PERSONA") + '</div>' +
+          '<button class="iconbtn" id="btn-cerrar-persona">' + icon("x", 16) + '</button>' +
+        '</div>' +
+        '<div class="campo"><label class="campo-label mono">NOMBRE</label><input class="field" id="persona-nombre" value="' + escapeHTML(nombre) + '" placeholder="Ej: T2 Pérez" /></div>' +
+        '<div class="campo"><label class="campo-label mono">CARGO / FUNCIÓN (OPCIONAL)</label><input class="field" id="persona-cargo" value="' + escapeHTML(cargo) + '" placeholder="Ej: Operador CIC" /></div>' +
+        '<div id="persona-error"></div>' +
+        '<div class="modal-actions">' +
+          '<button class="btn-cancel cond" id="btn-cancelar-persona">Cancelar</button>' +
+          '<button class="btn-guardar cond" id="btn-guardar-persona">Guardar</button>' +
+        '</div>' +
+      '</div>' +
+    '</div>'
+  );
+}
+
+function renderModalHecho() {
+  const h = state.hechoEditando;
+  const tipo = (h && h.tipo) || "constancia";
+  const fecha = (h && h.fecha) || fmtISO(new Date());
+  const descripcion = (h && h.descripcion) || "";
+  const tipoBtns = TIPOS_HECHO.map(function (t) {
+    const active = tipo === t.id;
+    return '<button class="cond" data-hecho-tipo="' + t.id + '" style="flex:1;padding:8px 4px;border-radius:6px;font-size:11px;font-weight:600;cursor:pointer;border:1.5px solid ' + t.color + ';background:' + (active ? t.color : "transparent") + ';color:' + (active ? "#0B1B2B" : t.color) + '">' + t.label + '</button>';
+  }).join("");
+
+  return (
+    '<div class="overlay" id="overlay-hecho">' +
+      '<div class="modal" style="max-width:420px">' +
+        '<div class="modal-head">' +
+          '<div class="modal-title mono">' + (h ? "EDITAR HECHO" : "REGISTRAR HECHO") + '</div>' +
+          '<button class="iconbtn" id="btn-cerrar-hecho">' + icon("x", 16) + '</button>' +
+        '</div>' +
+        '<div class="campo"><label class="campo-label mono">TIPO</label><div class="prio-row" id="hecho-tipo-row" data-value="' + tipo + '">' + tipoBtns + '</div></div>' +
+        '<div class="campo"><label class="campo-label mono">FECHA</label><input class="field" type="date" id="hecho-fecha" value="' + fecha + '" /></div>' +
+        '<div class="campo"><label class="campo-label mono">DESCRIPCIÓN</label><textarea class="field" id="hecho-descripcion" rows="4" placeholder="Describe el hecho de forma objetiva…">' + escapeHTML(descripcion) + '</textarea></div>' +
+        '<div id="hecho-error"></div>' +
+        '<div class="modal-actions">' +
+          '<button class="btn-cancel cond" id="btn-cancelar-hecho">Cancelar</button>' +
+          '<button class="btn-guardar cond" id="btn-guardar-hecho">Guardar</button>' +
+        '</div>' +
+      '</div>' +
+    '</div>'
+  );
+}
+
+// Modal de confirmación genérico reutilizable (para personas, hechos y delegaciones).
+function renderModalConfirmarEliminarGenerico(titulo, mensaje, idCancelar, idConfirmar) {
+  return (
+    '<div class="overlay" id="overlay-confirmar-generico">' +
+      '<div class="modal" style="max-width:360px">' +
+        '<div class="modal-head">' +
+          '<div class="modal-title mono" style="color:#E0524A">' + titulo.toUpperCase() + '</div>' +
+        '</div>' +
+        '<div class="cond" style="font-size:14px;color:#C9D2DA;line-height:1.5;margin-bottom:18px">' + escapeHTML(mensaje) + '</div>' +
+        '<div class="modal-actions">' +
+          '<button class="btn-cancel cond" id="' + idCancelar + '">Cancelar</button>' +
+          '<button class="cond" id="' + idConfirmar + '" style="flex:1.4;padding:10px;border-radius:7px;border:none;background:#E0524A;color:#0B1B2B;font-weight:700;font-size:13.5px;cursor:pointer">Eliminar</button>' +
+        '</div>' +
+      '</div>' +
+    '</div>'
+  );
+}
+
+function bindEventsPersonal() {
+  if (state.seccion !== "personal") return;
+
+  const btnNuevaPersona = document.getElementById("btn-nueva-persona");
+  if (btnNuevaPersona) btnNuevaPersona.onclick = function () { state.personaEditando = null; state.modalPersonal = "persona"; render(); };
+
+  document.querySelectorAll("[data-action='abrir-persona']").forEach(function (el) {
+    el.onclick = function () { state.personaSeleccionada = el.getAttribute("data-id"); render(); };
+  });
+
+  const btnVolver = document.getElementById("btn-volver-personal");
+  if (btnVolver) btnVolver.onclick = function () { state.personaSeleccionada = null; state.filtroTipoHecho = "todos"; render(); };
+
+  const btnEditarPersona = document.getElementById("btn-editar-persona");
+  if (btnEditarPersona) btnEditarPersona.onclick = function () {
+    state.personaEditando = state.personal.find(function (p) { return p.id === state.personaSeleccionada; });
+    state.modalPersonal = "persona";
+    render();
+  };
+  const btnEliminarPersona = document.getElementById("btn-eliminar-persona");
+  if (btnEliminarPersona) btnEliminarPersona.onclick = function () {
+    state.eliminarPersonaPendienteId = state.personaSeleccionada;
+    state.modalPersonal = "confirmarEliminarPersona";
+    render();
+  };
+
+  document.querySelectorAll("[data-action='filtro-tipo-hecho']").forEach(function (el) {
+    el.onclick = function () { state.filtroTipoHecho = el.getAttribute("data-tipo"); render(); };
+  });
+
+  const btnNuevoHecho = document.getElementById("btn-nuevo-hecho");
+  if (btnNuevoHecho) btnNuevoHecho.onclick = function () { state.hechoEditando = null; state.modalPersonal = "hecho"; render(); };
+
+  document.querySelectorAll("[data-action='editar-hecho']").forEach(function (el) {
+    el.onclick = function () {
+      const id = el.getAttribute("data-id");
+      state.hechoEditando = state.hechos.find(function (h) { return h.id === id; });
+      state.modalPersonal = "hecho";
+      render();
+    };
+  });
+  document.querySelectorAll("[data-action='eliminar-hecho']").forEach(function (el) {
+    el.onclick = function () {
+      state.eliminarHechoPendienteId = el.getAttribute("data-id");
+      state.modalPersonal = "confirmarEliminarHecho";
+      render();
+    };
+  });
+
+  // Modal persona
+  const btnCerrarPersona = document.getElementById("btn-cerrar-persona");
+  const btnCancelarPersona = document.getElementById("btn-cancelar-persona");
+  const cerrarModalPersona = function () { state.modalPersonal = null; state.personaEditando = null; render(); };
+  if (btnCerrarPersona) btnCerrarPersona.onclick = cerrarModalPersona;
+  if (btnCancelarPersona) btnCancelarPersona.onclick = cerrarModalPersona;
+  const overlayPersona = document.getElementById("overlay-persona");
+  if (overlayPersona) overlayPersona.onclick = function (e) { if (e.target === overlayPersona) cerrarModalPersona(); };
+
+  const btnGuardarPersona = document.getElementById("btn-guardar-persona");
+  if (btnGuardarPersona) {
+    btnGuardarPersona.onclick = function () {
+      const nombre = document.getElementById("persona-nombre").value.trim();
+      const cargo = document.getElementById("persona-cargo").value.trim();
+      const errorBox = document.getElementById("persona-error");
+      if (!nombre) { errorBox.innerHTML = '<div class="error-text cond">El nombre es obligatorio.</div>'; return; }
+      if (state.personaEditando) {
+        state.personal = state.personal.map(function (p) {
+          return p.id === state.personaEditando.id ? Object.assign({}, p, { nombre: nombre, cargo: cargo }) : p;
+        });
+      } else {
+        state.personal.push({ id: uid(), nombre: nombre, cargo: cargo });
+      }
+      persist();
+      state.modalPersonal = null;
+      state.personaEditando = null;
+      render();
+    };
+  }
+
+  // Confirmar eliminar persona
+  const btnCancelarEliminarPersona = document.getElementById("btn-cancelar-eliminar-persona");
+  if (btnCancelarEliminarPersona) btnCancelarEliminarPersona.onclick = function () { state.modalPersonal = null; state.eliminarPersonaPendienteId = null; render(); };
+  const btnConfirmarEliminarPersona = document.getElementById("btn-confirmar-eliminar-persona");
+  if (btnConfirmarEliminarPersona) {
+    btnConfirmarEliminarPersona.onclick = function () {
+      const id = state.eliminarPersonaPendienteId;
+      state.personal = state.personal.filter(function (p) { return p.id !== id; });
+      state.hechos = state.hechos.filter(function (h) { return h.personaId !== id; });
+      persist();
+      state.modalPersonal = null;
+      state.eliminarPersonaPendienteId = null;
+      state.personaSeleccionada = null;
+      render();
+    };
+  }
+
+  // Modal hecho
+  const btnCerrarHecho = document.getElementById("btn-cerrar-hecho");
+  const btnCancelarHecho = document.getElementById("btn-cancelar-hecho");
+  const cerrarModalHecho = function () { state.modalPersonal = null; state.hechoEditando = null; render(); };
+  if (btnCerrarHecho) btnCerrarHecho.onclick = cerrarModalHecho;
+  if (btnCancelarHecho) btnCancelarHecho.onclick = cerrarModalHecho;
+  const overlayHecho = document.getElementById("overlay-hecho");
+  if (overlayHecho) overlayHecho.onclick = function (e) { if (e.target === overlayHecho) cerrarModalHecho(); };
+
+  const tipoRow = document.getElementById("hecho-tipo-row");
+  if (tipoRow) {
+    tipoRow.querySelectorAll("[data-hecho-tipo]").forEach(function (btn) {
+      btn.onclick = function () {
+        const tipoId = btn.getAttribute("data-hecho-tipo");
+        tipoRow.dataset.value = tipoId;
+        tipoRow.querySelectorAll("[data-hecho-tipo]").forEach(function (b2) {
+          const tid = b2.getAttribute("data-hecho-tipo");
+          const t = tipoHechoById(tid);
+          const active = tid === tipoId;
+          b2.style.background = active ? t.color : "transparent";
+          b2.style.color = active ? "#0B1B2B" : t.color;
+        });
+      };
+    });
+  }
+
+  const btnGuardarHecho = document.getElementById("btn-guardar-hecho");
+  if (btnGuardarHecho) {
+    btnGuardarHecho.onclick = function () {
+      const tipoSeleccionado = (document.getElementById("hecho-tipo-row") || {}).dataset.value || "constancia";
+      const fecha = document.getElementById("hecho-fecha").value;
+      const descripcion = document.getElementById("hecho-descripcion").value.trim();
+      const errorBox = document.getElementById("hecho-error");
+      if (!fecha) { errorBox.innerHTML = '<div class="error-text cond">La fecha es obligatoria.</div>'; return; }
+      if (!descripcion) { errorBox.innerHTML = '<div class="error-text cond">La descripción es obligatoria.</div>'; return; }
+      if (state.hechoEditando) {
+        state.hechos = state.hechos.map(function (h) {
+          return h.id === state.hechoEditando.id ? Object.assign({}, h, { tipo: tipoSeleccionado, fecha: fecha, descripcion: descripcion }) : h;
+        });
+      } else {
+        state.hechos.push({ id: uid(), personaId: state.personaSeleccionada, tipo: tipoSeleccionado, fecha: fecha, descripcion: descripcion });
+      }
+      persist();
+      state.modalPersonal = null;
+      state.hechoEditando = null;
+      render();
+    };
+  }
+
+  // Confirmar eliminar hecho
+  const btnCancelarEliminarHecho = document.getElementById("btn-cancelar-eliminar-hecho");
+  if (btnCancelarEliminarHecho) btnCancelarEliminarHecho.onclick = function () { state.modalPersonal = null; state.eliminarHechoPendienteId = null; render(); };
+  const btnConfirmarEliminarHecho = document.getElementById("btn-confirmar-eliminar-hecho");
+  if (btnConfirmarEliminarHecho) {
+    btnConfirmarEliminarHecho.onclick = function () {
+      const id = state.eliminarHechoPendienteId;
+      state.hechos = state.hechos.filter(function (h) { return h.id !== id; });
+      persist();
+      state.modalPersonal = null;
+      state.eliminarHechoPendienteId = null;
+      render();
+    };
+  }
+
+  const overlayGenerico = document.getElementById("overlay-confirmar-generico");
+  if (overlayGenerico) {
+    overlayGenerico.onclick = function (e) {
+      if (e.target !== overlayGenerico) return;
+      if (state.modalPersonal === "confirmarEliminarPersona") { state.modalPersonal = null; state.eliminarPersonaPendienteId = null; }
+      if (state.modalPersonal === "confirmarEliminarHecho") { state.modalPersonal = null; state.eliminarHechoPendienteId = null; }
+      render();
+    };
+  }
+}
+
+
+/* ============================================================
+   SECCIÓN DELEGACIÓN — derivada directamente de los eventos del
+   calendario que tienen responsable asignado. Es la MISMA entidad:
+   editar desde aquí o desde el calendario actualiza el mismo dato.
+   ============================================================ */
+const ESTADOS_DELEGACION = [
+  { id: "no_iniciada", label: "NO INICIADA", color: "#8AA0B5" },
+  { id: "en_curso", label: "EN CURSO", color: "#D99A3D" },
+  { id: "bloqueada", label: "BLOQUEADA", color: "#E0524A" },
+  { id: "lista", label: "LISTA", color: "#5FE3A1" },
+];
+function estadoDelegacionById(id) {
+  return ESTADOS_DELEGACION.find(function (e) { return e.id === id; }) || ESTADOS_DELEGACION[0];
+}
+function estadoDelegacionDeEvento(ev) {
+  if (ev.completado) return "lista";
+  return ev.estadoDelegacion || "no_iniciada";
+}
+function tareasDelegadas() {
+  // Cualquier evento con responsable asignado es, por definición, una tarea delegada.
+  return state.eventos.filter(function (e) { return e.responsable && e.responsable.trim(); });
+}
+
+function renderSeccionDelegacion() {
+  const hoyISO = fmtISO(new Date());
+  const filtro = state.filtroEstadoDelegacion || "todas";
+  const ocultarCompletadas = !!state.ocultarDelegacionesCompletadas;
+
+  let tareas = tareasDelegadas().slice().sort(function (a, b) {
+    return (a.fechaFin || a.fecha || "9999").localeCompare(b.fechaFin || b.fecha || "9999");
+  });
+
+  if (ocultarCompletadas) tareas = tareas.filter(function (e) { return !e.completado; });
+
+  if (filtro !== "todas") {
+    tareas = tareas.filter(function (e) { return estadoDelegacionDeEvento(e) === filtro; });
+  }
+
+  const totalCompletadas = tareasDelegadas().filter(function (e) { return e.completado; }).length;
+
+  const filtroBtns = [{ id: "todas", label: "Todas" }].concat(ESTADOS_DELEGACION.map(function (e) { return { id: e.id, label: e.label }; }))
+    .map(function (f) {
+      const active = filtro === f.id;
+      const colorF = f.id === "todas" ? "#8AA0B5" : estadoDelegacionById(f.id).color;
+      return '<button class="cond" data-action="filtro-estado-deleg" data-estado="' + f.id + '" style="padding:6px 12px;border-radius:6px;border:1px solid ' + colorF + ';background:' + (active ? colorF : "transparent") + ';color:' + (active ? "#0B1B2B" : colorF) + ';font-size:11.5px;font-weight:600;cursor:pointer;white-space:nowrap">' + f.label + '</button>';
+    }).join("");
+
+  const tareasHtml = tareas.length === 0
+    ? '<div class="cond" style="text-align:center;padding:40px 20px;color:#5C7184;font-style:italic">Sin tareas delegadas' + (filtro !== "todas" ? " en este estado" : "") + '.</div>'
+    : tareas.map(function (ev) {
+        const estadoId = estadoDelegacionDeEvento(ev);
+        const estado = estadoDelegacionById(estadoId);
+        const fechaRef = ev.fechaFin || ev.fecha;
+        const vencida = fechaRef && fechaRef < hoyISO && !ev.completado;
+        const fechaLabel = (function () {
+          const d = new Date(fechaRef + "T00:00:00");
+          return d.getDate() + " " + MESES_ABR[d.getMonth()];
+        })();
+        const cat = catById(ev.categoria);
+        const colorCat = (cat && cat.color) || "#8AA0B5";
+        return (
+          '<div class="deleg-card" data-action="editar-delegacion" data-id="' + ev.id + '" style="border-left:6px solid ' + (vencida ? "#E0524A" : colorCat) + ';opacity:' + (ev.completado ? "0.55" : "1") + '">' +
+            '<button data-action="toggle-deleg-lista" data-id="' + ev.id + '" style="width:18px;height:18px;min-width:18px;border-radius:5px;border:1.5px solid ' + (ev.completado ? "#5FE3A1" : "#2A3F54") + ';background:' + (ev.completado ? "#5FE3A1" : "transparent") + ';cursor:pointer;display:flex;align-items:center;justify-content:center;color:#0B1B2B" title="Marcar lista">' + (ev.completado ? icon("checkCircle", 12) : "") + '</button>' +
+            '<div style="flex:1;min-width:0">' +
+              '<div class="cond" style="font-size:14px;font-weight:600;color:#E4EAEF;' + (ev.completado ? "text-decoration:line-through" : "") + '">' + escapeHTML(ev.titulo) + '</div>' +
+              '<div class="meta-row" style="margin-top:4px">' +
+                '<span class="meta-resp cond">' + icon("user", 10) + ' ' + escapeHTML(ev.responsable) + '</span>' +
+                '<span class="mono" style="font-size:10.5px;color:' + (vencida ? "#E0524A" : "#5C7184") + ';font-weight:' + (vencida ? "700" : "500") + '">' + (vencida ? "VENCIDA · " : "") + fechaLabel + '</span>' +
+              '</div>' +
+            '</div>' +
+            '<div style="display:flex;align-items:center;gap:8px;flex-shrink:0">' +
+              '<span class="mono" style="font-size:10px;font-weight:700;color:' + estado.color + ';padding:3px 8px;border:1px solid ' + estado.color + ';border-radius:5px;white-space:nowrap">' + estado.label + '</span>' +
+              '<button class="iconbtn-sm" data-action="eliminar-delegacion" data-id="' + ev.id + '" title="Eliminar">' + icon("trash", 13) + '</button>' +
+            '</div>' +
+          '</div>'
+        );
+      }).join("");
+
+  return (
+    '<div style="padding:18px">' +
+      '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;flex-wrap:wrap;gap:10px">' +
+        '<div class="mono" style="font-size:13px;color:#D99A3D;letter-spacing:1px;font-weight:600">TABLERO DE DELEGACIÓN</div>' +
+        '<button class="btn-primary cond" id="btn-nueva-delegacion">' + icon("plus", 15) + ' Delegar tarea</button>' +
+      '</div>' +
+      '<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px;align-items:center">' +
+        filtroBtns +
+        '<button class="cond" id="btn-toggle-ocultar-completadas" style="margin-left:auto;display:flex;align-items:center;gap:6px;padding:6px 12px;border-radius:6px;border:1px solid #2A3F54;background:' + (ocultarCompletadas ? "#0E2235" : "transparent") + ';color:#8AA0B5;font-size:11.5px;font-weight:600;cursor:pointer;white-space:nowrap">' +
+          (ocultarCompletadas ? icon("checkCircle", 13) : icon("list", 13)) + ' ' + (ocultarCompletadas ? "Mostrar terminadas" : "Ocultar terminadas") +
+          (totalCompletadas ? ' <span class="mono">(' + totalCompletadas + ')</span>' : '') +
+        '</button>' +
+      '</div>' +
+      '<div style="display:flex;flex-direction:column;gap:8px;margin-top:14px">' + tareasHtml + '</div>' +
+    '</div>' +
+    (state.modalDelegacion === "tarea" ? renderModalDelegacion() : "") +
+    (state.modalDelegacion === "confirmarEliminarTarea" ? renderModalConfirmarEliminarGenerico(
+        "¿Eliminar esta tarea delegada?", "Esto eliminará el evento correspondiente también del calendario. Esta acción no se puede deshacer.",
+        "btn-cancelar-eliminar-deleg", "btn-confirmar-eliminar-deleg"
+      ) : "")
+  );
+}
+
+function renderModalDelegacion() {
+  const ev = state.delegacionEditando;
+  const tarea = (ev && ev.titulo) || "";
+  const responsable = (ev && ev.responsable) || "";
+  const responsableEsLibre = responsable && state.responsables.indexOf(responsable) === -1;
+  const fechaLimite = (ev && (ev.fechaFin || ev.fecha)) || fmtISO(new Date());
+  const estado = ev ? estadoDelegacionDeEvento(ev) : "no_iniciada";
+
+  const respOptions = state.responsables.map(function (r) {
+    return '<option value="' + escapeHTML(r) + '"' + (responsable === r ? " selected" : "") + '>' + escapeHTML(r) + '</option>';
+  }).join("");
+
+  const estadoBtns = ESTADOS_DELEGACION.map(function (e) {
+    const active = estado === e.id;
+    return '<button class="cond" data-deleg-estado="' + e.id + '" style="flex:1;padding:8px 4px;border-radius:6px;font-size:10.5px;font-weight:600;cursor:pointer;border:1.5px solid ' + e.color + ';background:' + (active ? e.color : "transparent") + ';color:' + (active ? "#0B1B2B" : e.color) + '">' + e.label + '</button>';
+  }).join("");
+
+  return (
+    '<div class="overlay" id="overlay-delegacion">' +
+      '<div class="modal" style="max-width:420px">' +
+        '<div class="modal-head">' +
+          '<div class="modal-title mono">' + (ev ? "EDITAR TAREA DELEGADA" : "DELEGAR TAREA") + '</div>' +
+          '<button class="iconbtn" id="btn-cerrar-delegacion">' + icon("x", 16) + '</button>' +
+        '</div>' +
+        '<div class="cond" style="font-size:11.5px;color:#5C7184;margin-bottom:12px;line-height:1.4">Esto crea (o edita) un evento en tu calendario. Aparecerá también en la vista Semana/Mes con el responsable asignado.</div>' +
+        '<div class="campo"><label class="campo-label mono">TAREA</label><textarea class="field" id="deleg-tarea" rows="2" placeholder="Ej: Preparar informe de interoperabilidad Salitre 2026">' + escapeHTML(tarea) + '</textarea></div>' +
+        '<div class="campo"><label class="campo-label mono">RESPONSABLE</label>' +
+          '<div id="deleg-resp-wrap">' +
+          (responsableEsLibre
+            ? '<div style="display:flex;gap:6px"><input class="field" id="deleg-responsable-libre" value="' + escapeHTML(responsable) + '" placeholder="Nombre del responsable" style="flex:1" /><button class="iconbtn" id="btn-deleg-resp-volver" style="width:38px" title="Volver a lista">' + icon("x", 14) + '</button></div>'
+            : '<select class="field" id="deleg-responsable"><option value="">— Sin asignar —</option>' + respOptions + '<option value="__libre__">✎ Escribir otro nombre…</option></select>'
+          ) +
+          '</div>' +
+        '</div>' +
+        '<div class="campo"><label class="campo-label mono">FECHA LÍMITE</label><input class="field" type="date" id="deleg-fecha" value="' + fechaLimite + '" /></div>' +
+        '<div class="campo"><label class="campo-label mono">ESTADO</label><div class="prio-row" id="deleg-estado-row" data-value="' + estado + '">' + estadoBtns + '</div></div>' +
+        '<div id="deleg-error"></div>' +
+        '<div class="modal-actions">' +
+          '<button class="btn-cancel cond" id="btn-cancelar-delegacion">Cancelar</button>' +
+          '<button class="btn-guardar cond" id="btn-guardar-delegacion">Guardar</button>' +
+        '</div>' +
+      '</div>' +
+    '</div>'
+  );
+}
+
+function bindEventsDelegacion() {
+  if (state.seccion !== "delegacion") return;
+
+  document.querySelectorAll("[data-action='filtro-estado-deleg']").forEach(function (el) {
+    el.onclick = function () { state.filtroEstadoDelegacion = el.getAttribute("data-estado"); render(); };
+  });
+
+  const btnToggleOcultar = document.getElementById("btn-toggle-ocultar-completadas");
+  if (btnToggleOcultar) btnToggleOcultar.onclick = function () { state.ocultarDelegacionesCompletadas = !state.ocultarDelegacionesCompletadas; render(); };
+
+  const btnNuevaDelegacion = document.getElementById("btn-nueva-delegacion");
+  if (btnNuevaDelegacion) btnNuevaDelegacion.onclick = function () { state.delegacionEditando = null; state.modalDelegacion = "tarea"; render(); };
+
+  document.querySelectorAll("[data-action='editar-delegacion']").forEach(function (el) {
+    el.onclick = function () {
+      const id = el.getAttribute("data-id");
+      state.delegacionEditando = state.eventos.find(function (e) { return e.id === id; });
+      state.modalDelegacion = "tarea";
+      render();
+    };
+  });
+  document.querySelectorAll("[data-action='toggle-deleg-lista']").forEach(function (el) {
+    el.onclick = function (e) {
+      e.stopPropagation();
+      const id = el.getAttribute("data-id");
+      toggleEstado(id); // misma función que usa el calendario: mantiene un solo dato sincronizado
+    };
+  });
+  document.querySelectorAll("[data-action='eliminar-delegacion']").forEach(function (el) {
+    el.onclick = function (e) {
+      e.stopPropagation();
+      state.eliminarDelegacionPendienteId = el.getAttribute("data-id");
+      state.modalDelegacion = "confirmarEliminarTarea";
+      render();
+    };
+  });
+
+  const cerrarModalDelegacion = function () { state.modalDelegacion = null; state.delegacionEditando = null; render(); };
+  const btnCerrarDelegacion = document.getElementById("btn-cerrar-delegacion");
+  const btnCancelarDelegacion = document.getElementById("btn-cancelar-delegacion");
+  if (btnCerrarDelegacion) btnCerrarDelegacion.onclick = cerrarModalDelegacion;
+  if (btnCancelarDelegacion) btnCancelarDelegacion.onclick = cerrarModalDelegacion;
+  const overlayDelegacion = document.getElementById("overlay-delegacion");
+  if (overlayDelegacion) overlayDelegacion.onclick = function (e) { if (e.target === overlayDelegacion) cerrarModalDelegacion(); };
+
+  const respSelDeleg = document.getElementById("deleg-responsable");
+  if (respSelDeleg) {
+    respSelDeleg.onchange = function (e) {
+      if (e.target.value === "__libre__") {
+        document.getElementById("deleg-resp-wrap").innerHTML =
+          '<div style="display:flex;gap:6px"><input class="field" id="deleg-responsable-libre" value="" placeholder="Nombre del responsable" style="flex:1" /><button class="iconbtn" id="btn-deleg-resp-volver" style="width:38px" title="Volver a lista">' + icon("x", 14) + '</button></div>';
+        const btnVolverResp = document.getElementById("btn-deleg-resp-volver");
+        if (btnVolverResp) {
+          btnVolverResp.onclick = function () {
+            const respOptions2 = state.responsables.map(function (r) { return '<option value="' + escapeHTML(r) + '">' + escapeHTML(r) + '</option>'; }).join("");
+            document.getElementById("deleg-resp-wrap").innerHTML = '<select class="field" id="deleg-responsable"><option value="">— Sin asignar —</option>' + respOptions2 + '<option value="__libre__">✎ Escribir otro nombre…</option></select>';
+          };
+        }
+      }
+    };
+  }
+
+  const estadoRow = document.getElementById("deleg-estado-row");
+  if (estadoRow) {
+    estadoRow.querySelectorAll("[data-deleg-estado]").forEach(function (btn) {
+      btn.onclick = function () {
+        const estadoId = btn.getAttribute("data-deleg-estado");
+        estadoRow.dataset.value = estadoId;
+        estadoRow.querySelectorAll("[data-deleg-estado]").forEach(function (b2) {
+          const eid = b2.getAttribute("data-deleg-estado");
+          const e = estadoDelegacionById(eid);
+          const active = eid === estadoId;
+          b2.style.background = active ? e.color : "transparent";
+          b2.style.color = active ? "#0B1B2B" : e.color;
+        });
+      };
+    });
+  }
+
+  const btnGuardarDelegacion = document.getElementById("btn-guardar-delegacion");
+  if (btnGuardarDelegacion) {
+    btnGuardarDelegacion.onclick = function () {
+      const tarea = document.getElementById("deleg-tarea").value.trim();
+      const respLibre = document.getElementById("deleg-responsable-libre");
+      const respSelect = document.getElementById("deleg-responsable");
+      const responsable = respLibre ? respLibre.value.trim() : (respSelect ? respSelect.value : "");
+      const fechaLimite = document.getElementById("deleg-fecha").value;
+      const estadoSeleccionado = (document.getElementById("deleg-estado-row") || {}).dataset.value || "no_iniciada";
+      const errorBox = document.getElementById("deleg-error");
+      if (!tarea) { errorBox.innerHTML = '<div class="error-text cond">La descripción de la tarea es obligatoria.</div>'; return; }
+      if (!responsable) { errorBox.innerHTML = '<div class="error-text cond">Debes asignar un responsable.</div>'; return; }
+
+      const completado = estadoSeleccionado === "lista";
+
+      if (state.delegacionEditando) {
+        state.eventos = state.eventos.map(function (e) {
+          if (e.id !== state.delegacionEditando.id) return e;
+          return Object.assign({}, e, {
+            titulo: tarea, responsable: responsable, fecha: fechaLimite, fechaFin: fechaLimite,
+            estadoDelegacion: estadoSeleccionado, completado: completado,
+          });
+        });
+      } else {
+        state.eventos.push({
+          id: uid(), titulo: tarea, fecha: fechaLimite, fechaFin: fechaLimite, hora: "", duracion: 30,
+          categoria: (state.categorias[0] || {}).id || "tarea", responsable: responsable, prioridad: "media",
+          lugar: "", notas: "", subtareas: [], estadoDelegacion: estadoSeleccionado, completado: completado,
+        });
+      }
+      persist();
+      state.modalDelegacion = null;
+      state.delegacionEditando = null;
+      render();
+    };
+  }
+
+  const btnCancelarEliminarDeleg = document.getElementById("btn-cancelar-eliminar-deleg");
+  if (btnCancelarEliminarDeleg) btnCancelarEliminarDeleg.onclick = function () { state.modalDelegacion = null; state.eliminarDelegacionPendienteId = null; render(); };
+  const btnConfirmarEliminarDeleg = document.getElementById("btn-confirmar-eliminar-deleg");
+  if (btnConfirmarEliminarDeleg) {
+    btnConfirmarEliminarDeleg.onclick = function () {
+      const id = state.eliminarDelegacionPendienteId;
+      state.eventos = state.eventos.filter(function (e) { return e.id !== id; });
+      persist();
+      state.modalDelegacion = null;
+      state.eliminarDelegacionPendienteId = null;
+      render();
+    };
+  }
+
+  const overlayGenericoDeleg = document.getElementById("overlay-confirmar-generico");
+  if (overlayGenericoDeleg && state.modalDelegacion === "confirmarEliminarTarea") {
+    overlayGenericoDeleg.onclick = function (e) {
+      if (e.target !== overlayGenericoDeleg) return;
+      state.modalDelegacion = null;
+      state.eliminarDelegacionPendienteId = null;
+      render();
+    };
+  }
+}
+
+
 function renderTopbar() {
   const hoy = new Date();
   const hoyISO = fmtISO(hoy);
   const pendientesHoy = (eventosPorFecha()[hoyISO] || []).filter(function (e) { return !e.completado; });
   const vencidos = state.eventos.filter(function (e) { return !e.completado && e.fecha < hoyISO; });
   const completadosCount = eventosCompletados().length;
+  const esCalendario = state.seccion === "calendario";
+
+  const statsHtml = esCalendario
+    ? (
+        '<div style="display:flex;gap:18px;align-items:center;font-size:13px">' +
+          '<div class="stat"><div class="stat-num mono" style="color:#C9D2DA">' + pendientesHoy.length + '</div><div class="stat-label">HOY PENDIENTE</div></div>' +
+          '<div class="stat"><div class="stat-num mono" style="color:' + (vencidos.length ? "#E0524A" : "#C9D2DA") + '">' + vencidos.length + '</div><div class="stat-label">VENCIDOS</div></div>' +
+          '<button class="cond" id="btn-completadas" style="display:flex;align-items:center;gap:6px;padding:8px 12px;border-radius:7px;border:1px solid #2A3F54;background:#0E2235;color:#5FE3A1;font-weight:600;font-size:12.5px;cursor:pointer;white-space:nowrap">' +
+            icon("checkCircle", 14) + ' Completadas' + (completadosCount ? ' <span class="mono" style="color:#5FE3A1;font-weight:700">(' + completadosCount + ')</span>' : '') + '</button>' +
+          (vencidos.length > 0 ?
+            '<button class="cond" id="btn-mover-todos" style="display:flex;align-items:center;gap:6px;padding:8px 12px;border-radius:7px;border:1px solid #E0524A;background:rgba(224,82,74,0.12);color:#E0524A;font-weight:600;font-size:12.5px;cursor:pointer;white-space:nowrap">' +
+              icon("skip", 14) + ' Mover vencidas a mañana</button>'
+            : '') +
+        '</div>'
+      )
+    : '<div></div>';
 
   return (
     '<div class="topbar">' +
@@ -621,16 +1353,12 @@ function renderTopbar() {
           '<div class="mono" id="dtg-clock" style="font-size:15px;color:#D99A3D;font-weight:600;letter-spacing:0.5px">' + fmtDTG(new Date()) + '</div>' +
         '</div>' +
       '</div>' +
-      '<div style="display:flex;gap:18px;align-items:center;font-size:13px">' +
-        '<div class="stat"><div class="stat-num mono" style="color:#C9D2DA">' + pendientesHoy.length + '</div><div class="stat-label">HOY PENDIENTE</div></div>' +
-        '<div class="stat"><div class="stat-num mono" style="color:' + (vencidos.length ? "#E0524A" : "#C9D2DA") + '">' + vencidos.length + '</div><div class="stat-label">VENCIDOS</div></div>' +
-        '<button class="cond" id="btn-completadas" style="display:flex;align-items:center;gap:6px;padding:8px 12px;border-radius:7px;border:1px solid #2A3F54;background:#0E2235;color:#5FE3A1;font-weight:600;font-size:12.5px;cursor:pointer;white-space:nowrap">' +
-          icon("checkCircle", 14) + ' Completadas' + (completadosCount ? ' <span class="mono" style="color:#5FE3A1;font-weight:700">(' + completadosCount + ')</span>' : '') + '</button>' +
-        (vencidos.length > 0 ?
-          '<button class="cond" id="btn-mover-todos" style="display:flex;align-items:center;gap:6px;padding:8px 12px;border-radius:7px;border:1px solid #E0524A;background:rgba(224,82,74,0.12);color:#E0524A;font-weight:600;font-size:12.5px;cursor:pointer;white-space:nowrap">' +
-            icon("skip", 14) + ' Mover vencidas a mañana</button>'
-          : '') +
-      '</div>' +
+      statsHtml +
+    '</div>' +
+    '<div class="seccion-nav">' +
+      '<button class="seccion-btn' + (esCalendario ? " active" : "") + '" id="sec-calendario">' + icon("calendar", 14) + ' Calendario</button>' +
+      '<button class="seccion-btn' + (state.seccion === "personal" ? " active" : "") + '" id="sec-personal">' + icon("users", 14) + ' Personal</button>' +
+      '<button class="seccion-btn' + (state.seccion === "delegacion" ? " active" : "") + '" id="sec-delegacion">' + icon("layers", 14) + ' Delegación</button>' +
     '</div>'
   );
 }
@@ -729,15 +1457,17 @@ function renderFilaEvento(ev, vencido) {
   const colorBanda = vencido ? "#E0524A" : color;
   const colorLetra = colorTextoLegible(colorBanda);
   const letraInicial = vencido ? "!" : inicialCategoria(cat);
+  const fondoFila = ev.completado ? "#070F18" : (vencido ? "rgba(224,82,74,0.06)" : "transparent");
   return (
-    '<div class="fila-evento" data-action="editar-fila" data-id="' + ev.id + '" style="opacity:' + (ev.completado ? "0.5" : "1") + ';background:' + (vencido ? "rgba(224,82,74,0.06)" : "transparent") + ';cursor:pointer;padding:0;gap:0">' +
+    '<div class="fila-evento" data-action="editar-fila" data-id="' + ev.id + '" style="opacity:' + (ev.completado ? "0.65" : "1") + ';background:' + fondoFila + ';cursor:pointer;padding:0;gap:0">' +
       '<div class="mono" style="align-self:stretch;width:26px;min-width:26px;background:' + colorBanda + ';color:' + colorLetra + ';display:flex;align-items:center;justify-content:center;font-weight:700;font-size:14px;border-radius:6px 0 0 6px" title="' + escapeHTML((cat && cat.label) || "") + '">' + letraInicial + '</div>' +
       '<div style="display:flex;align-items:center;gap:10px;padding:9px 14px 9px 10px;flex:1;min-width:0">' +
-      '<button class="check" data-action="toggle" data-id="' + ev.id + '" style="border-color:' + color + ';background:' + (ev.completado ? color : "transparent") + '" title="Marcar"></button>' +
+      '<button class="check" data-action="toggle" data-id="' + ev.id + '" style="border-color:' + color + ';background:' + (ev.completado ? color : "transparent") + ';display:flex;align-items:center;justify-content:center;color:#0B1B2B" title="Marcar">' + (ev.completado ? icon("checkCircle", 11) : "") + '</button>' +
       '<div class="hora mono">' + (ev.hora || "—") + (horaTermino ? '<div style="font-size:9.5px;color:#5C7184;font-weight:500">' + horaTermino + '</div>' : "") + '</div>' +
       '<div style="flex:1;min-width:0">' +
         '<div class="titulo cond' + (ev.completado ? " done" : "") + '">' + escapeHTML(ev.titulo) + '</div>' +
         '<div class="meta-row">' +
+          (ev.completado ? '<span class="mono" style="font-size:10px;color:#5FE3A1;font-weight:700">' + icon("checkCircle", 9) + ' LISTA</span>' : "") +
           (vencido ? '<span class="meta-vencido mono">VENCIDO</span>' : "") +
           (esMultiDia ? '<span class="mono" style="font-size:10px;color:' + color + ';font-weight:600">' + icon("skip", 9) + ' ' + rangoLabel + '</span>' : "") +
           (ev.repetSerieId ? '<span class="mono" style="font-size:10px;color:#8AA0B5">↻</span>' : "") +
@@ -820,22 +1550,28 @@ function renderVistaSemana() {
     const esHoy = isSameDay(d, hoy);
     const acento = ACENTOS_DIA[i];
     const claseAlt = (i % 2 === 1 && !esHoy) ? " alt" : "";
+    const colapsado = !!state.diasColapsados[iso];
     html +=
       '<div class="daycard' + (esHoy ? " today" : claseAlt) + '" style="' + (esHoy ? "" : "border-top-color:" + acento) + '">' +
-        '<div class="daycard-head' + (evs.length ? "" : " empty") + '">' +
+        '<div class="daycard-head' + (evs.length && !colapsado ? "" : " empty") + '" data-action="toggle-dia-colapso" data-fecha="' + iso + '" style="cursor:pointer">' +
           '<div style="display:flex;align-items:center;gap:10px">' +
+            '<span style="color:#5C7184;display:flex;transition:transform 0.15s;transform:rotate(' + (colapsado ? "-90deg" : "0deg") + ')">' + icon("chevronDown", 14) + '</span>' +
             '<div class="mono" style="font-size:12px;font-weight:700;color:' + (esHoy ? "#D99A3D" : acento) + ';letter-spacing:1px">' + DIAS_SEM[i] + '</div>' +
             '<div class="cond" style="font-size:14px;color:#C9D2DA">' + d.getDate() + ' ' + MESES_ABR[d.getMonth()] + '</div>' +
             (esHoy ? '<span class="badge-hoy mono">HOY</span>' : "") +
+            (colapsado && evs.length ? '<span class="mono" style="font-size:11px;color:#5C7184">(' + evs.length + ')</span>' : "") +
           '</div>' +
           '<div style="display:flex;gap:6px">' +
             (evs.length > 0 ? '<button class="iconbtn" data-action="export-dia" data-fecha="' + iso + '" title="Exportar día">' + icon("download", 14) + '</button>' : "") +
             '<button class="iconbtn" data-action="nuevo-fecha" data-fecha="' + iso + '" title="Agregar evento">' + icon("plus", 14) + '</button>' +
           '</div>' +
         '</div>' +
-        (evs.length === 0
-          ? '<div class="empty-day cond">Sin novedades</div>'
-          : evs.map(function (ev) { return renderFilaEvento(ev, !ev.completado && ev.fecha < hoyISO); }).join("")
+        (colapsado
+          ? ""
+          : (evs.length === 0
+              ? '<div class="empty-day cond">Sin novedades</div>'
+              : evs.map(function (ev) { return renderFilaEvento(ev, !ev.completado && ev.fecha < hoyISO); }).join("")
+            )
         ) +
       '</div>';
   });
@@ -963,15 +1699,6 @@ function renderModalEvento() {
           '<div class="modal-title mono">' + (ev ? "EDITAR EVENTO" : "NUEVO EVENTO") + '</div>' +
           '<button class="iconbtn" data-action="cerrar-modal">' + icon("x", 16) + '</button>' +
         '</div>' +
-        (!ev && state.plantillas.length ? (
-          '<div class="campo">' +
-            '<label class="campo-label mono">' + icon("layers", 11) + ' USAR PLANTILLA (OPCIONAL)</label>' +
-            '<select class="field" id="ev-plantilla">' +
-              '<option value="">— Empezar en blanco —</option>' +
-              state.plantillas.map(function (p) { return '<option value="' + p.id + '">' + escapeHTML(p.nombre) + '</option>'; }).join("") +
-            '</select>' +
-          '</div>'
-        ) : "") +
         '<div class="campo"><label class="campo-label mono">TÍTULO</label>' +
           '<input class="field" id="ev-titulo" value="' + escapeHTML(titulo) + '" placeholder="Ej: Reunión de coordinación CIC" /></div>' +
         '<div class="row-gap">' +
@@ -1237,27 +1964,34 @@ function renderModalConfirmarEliminar() {
    RENDER PRINCIPAL
    ============================================================ */
 function render() {
-  const fab = state.eventos.length > 0
-    ? '<button class="fab cond" id="btn-export-todo">' + icon("download", 15) + ' Exportar todo (.ics)</button>'
-    : "";
+  let html;
+  if (state.seccion === "personal") {
+    html = renderTopbar() + renderSeccionPersonal();
+  } else if (state.seccion === "delegacion") {
+    html = renderTopbar() + renderSeccionDelegacion();
+  } else {
+    const fab = state.eventos.length > 0
+      ? '<button class="fab cond" id="btn-export-todo">' + icon("download", 15) + ' Exportar todo (.ics)</button>'
+      : "";
 
-  let modalHtml = "";
-  if (state.modal === "evento") modalHtml = renderModalEvento();
-  else if (state.modal === "categorias") modalHtml = renderModalCategorias();
-  else if (state.modal === "detalleDia") modalHtml = renderModalDetalleDia();
-  else if (state.modal === "completadas") modalHtml = renderModalCompletadas();
-  else if (state.modal === "diagnostico") modalHtml = renderModalDiagnostico();
+    let modalHtml = "";
+    if (state.modal === "evento") modalHtml = renderModalEvento();
+    else if (state.modal === "categorias") modalHtml = renderModalCategorias();
+    else if (state.modal === "detalleDia") modalHtml = renderModalDetalleDia();
+    else if (state.modal === "completadas") modalHtml = renderModalCompletadas();
+    else if (state.modal === "diagnostico") modalHtml = renderModalDiagnostico();
 
-  const confirmHtml = state.eliminarPendienteId ? renderModalConfirmarEliminar() : "";
+    const confirmHtml = state.eliminarPendienteId ? renderModalConfirmarEliminar() : "";
 
-  const html =
-    renderTopbar() +
-    renderControles() +
-    (state.vista === "agenda" ? "" : renderNavTemporal()) +
-    '<div class="view-area">' + (state.vista === "agenda" ? renderVistaAgenda() : state.vista === "semana" ? renderVistaSemana() : renderVistaMes()) + '</div>' +
-    fab +
-    modalHtml +
-    confirmHtml;
+    html =
+      renderTopbar() +
+      renderControles() +
+      (state.vista === "agenda" ? "" : renderNavTemporal()) +
+      '<div class="view-area">' + (state.vista === "agenda" ? renderVistaAgenda() : state.vista === "semana" ? renderVistaSemana() : renderVistaMes()) + '</div>' +
+      fab +
+      modalHtml +
+      confirmHtml;
+  }
 
   document.getElementById("app").innerHTML = html;
   bindEvents();
@@ -1268,6 +2002,21 @@ function render() {
    ============================================================ */
 function bindEvents() {
   const app = document.getElementById("app");
+
+  // Navegación entre secciones principales (Calendario / Personal / Delegación)
+  const secCalendario = document.getElementById("sec-calendario");
+  const secPersonal = document.getElementById("sec-personal");
+  const secDelegacion = document.getElementById("sec-delegacion");
+  if (secCalendario) secCalendario.onclick = function () { state.seccion = "calendario"; render(); };
+  if (secPersonal) secPersonal.onclick = function () { state.seccion = "personal"; render(); };
+  if (secDelegacion) secDelegacion.onclick = function () { state.seccion = "delegacion"; render(); };
+
+  // Si no estamos en la sección calendario, el resto de bindings de esa sección no aplica.
+  if (state.seccion !== "calendario") {
+    bindEventsPersonal();
+    bindEventsDelegacion();
+    return;
+  }
 
   // Sincronizar scroll horizontal entre el header de días (sticky) y el grid de celdas (vista mes)
   const dowWrap = document.getElementById("month-dow-wrap");
@@ -1377,6 +2126,10 @@ function bindEvents() {
       downloadICSBatch(evs, "dia_" + fecha);
     };
     else if (action === "nuevo-fecha") el.onclick = function (e) { e.stopPropagation(); abrirNuevo(fecha); };
+    else if (action === "toggle-dia-colapso") el.onclick = function () {
+      state.diasColapsados[fecha] = !state.diasColapsados[fecha];
+      render();
+    };
     else if (action === "dia-click") el.onclick = function () {
       const hasEvents = el.getAttribute("data-has-events") === "1";
       if (hasEvents) { state.diaDetalle = fecha; state.modal = "detalleDia"; render(); }
@@ -1409,48 +2162,6 @@ function bindEvents() {
 
   /* ---------- Modal evento: lógica específica ---------- */
   if (state.modal === "evento") {
-    const plantillaSel = document.getElementById("ev-plantilla");
-    if (plantillaSel) {
-      plantillaSel.onchange = function (e) {
-        const p = state.plantillas.find(function (pl) { return pl.id === e.target.value; });
-        if (!p) return;
-        const ti = document.getElementById("ev-titulo"); if (ti) ti.value = p.titulo || "";
-        const ho = document.getElementById("ev-hora"); if (ho) ho.value = p.hora || "08:00";
-        const ca = document.getElementById("ev-categoria"); if (ca && p.categoria) ca.value = p.categoria;
-        const lu = document.getElementById("ev-lugar"); if (lu) lu.value = p.lugar || "";
-        const dh = document.getElementById("ev-dur-horas");
-        const dm = document.getElementById("ev-dur-minutos");
-        if (dh && dm) {
-          const dur = p.duracion || 30;
-          dh.value = Math.floor(dur / 60);
-          dm.value = dur % 60;
-        }
-        // Responsable: si está en la lista predefinida, lo selecciona; si no, no fuerza nada.
-        const respSelect = document.getElementById("ev-responsable");
-        if (respSelect && p.responsable && state.responsables.indexOf(p.responsable) !== -1) {
-          respSelect.value = p.responsable;
-        }
-        // Prioridad: actualizar visualmente los botones de prioridad.
-        const prioRowEl = document.getElementById("prio-row");
-        if (prioRowEl && p.prioridad) {
-          prioRowEl.dataset.value = p.prioridad;
-          prioRowEl.querySelectorAll(".prio-btn").forEach(function (b2) {
-            const pid = b2.getAttribute("data-prio");
-            const pr = prioById(pid);
-            const active = pid === p.prioridad;
-            b2.style.background = active ? pr.color : "transparent";
-            b2.style.color = active ? "#0B1B2B" : pr.color;
-          });
-        }
-        // Refrescar la hora de término mostrada.
-        const terminoLabel = document.getElementById("ev-hora-termino");
-        if (terminoLabel && ho && dh && dm) {
-          const durTotal = (Number(dh.value) || 0) * 60 + (Number(dm.value) || 0);
-          terminoLabel.textContent = "Término: " + calcularHoraTermino(ho.value, durTotal);
-        }
-      };
-    }
-
     const fechaInicioInput = document.getElementById("ev-fecha");
     const fechaFinInput = document.getElementById("ev-fecha-fin");
     if (fechaInicioInput && fechaFinInput) {
