@@ -488,15 +488,25 @@ const state = {
   eliminarPendienteId: null,
 };
 
+// ÚNICA fuente de verdad de qué vive en el estado y se debe guardar/respaldar.
+// IMPORTANTE: cualquier nuevo dato persistente (nueva sección, nueva lista de
+// configuración, etc.) DEBE agregarse aquí. persist() y el respaldo/restauración
+// leen de esta misma lista, así que agregarlo aquí basta para que ambos lo cubran.
+const CAMPOS_PERSISTENTES = [
+  { campo: "eventos", clave: STORAGE_KEY },
+  { campo: "categorias", clave: CAT_KEY },
+  { campo: "responsables", clave: RESP_KEY },
+  { campo: "personal", clave: PERSONAL_KEY },
+  { campo: "hechos", clave: HECHOS_KEY },
+  { campo: "buques", clave: BUQUES_KEY },
+  { campo: "tiposActividadMolo", clave: "bitacora:tiposActividadMolo" },
+  { campo: "actividadesTrafico", clave: ACTIVIDADES_TRAFICO_KEY },
+];
+
 function persist() {
-  saveLocal(STORAGE_KEY, state.eventos);
-  saveLocal(CAT_KEY, state.categorias);
-  saveLocal(RESP_KEY, state.responsables);
-  saveLocal(PERSONAL_KEY, state.personal);
-  saveLocal(HECHOS_KEY, state.hechos);
-  saveLocal(BUQUES_KEY, state.buques);
-  saveLocal("bitacora:tiposActividadMolo", state.tiposActividadMolo);
-  saveLocal(ACTIVIDADES_TRAFICO_KEY, state.actividadesTrafico);
+  CAMPOS_PERSISTENTES.forEach(function (c) {
+    saveLocal(c.clave, state[c.campo]);
+  });
 }
 
 // Migración única: las versiones anteriores guardaban las tareas delegadas en una
@@ -2664,7 +2674,7 @@ function renderModalDiagnostico() {
         '<div class="cond" style="margin-top:10px;font-size:11px;color:#5C7184;line-height:1.5">Si el primer recuadro está en rojo (❌), abre esta página con internet activo, espera a que el segundo y tercer recuadro se pongan en verde, y luego vuelve a intentar sin conexión.</div>' +
         '<div style="margin-top:20px;padding-top:16px;border-top:1px solid #1E3247">' +
           '<div class="mono" style="font-size:10.5px;color:#8AA0B5;letter-spacing:0.5px;margin-bottom:10px">RESPALDO DE DATOS</div>' +
-          '<div class="cond" style="font-size:11.5px;color:#8AA0B5;line-height:1.5;margin-bottom:10px">Guarda una copia de todos tus eventos, categorías y responsables en un archivo. Útil antes de borrar caché del navegador o cambiar de teléfono.</div>' +
+          '<div class="cond" style="font-size:11.5px;color:#8AA0B5;line-height:1.5;margin-bottom:10px">Guarda una copia de todo: eventos, categorías, responsables, Personal (personas y hechos), y Molo (buques y actividades). Útil antes de borrar caché del navegador o cambiar de teléfono.</div>' +
           '<div style="display:flex;gap:8px">' +
             '<button class="cond" id="btn-exportar-respaldo" style="flex:1;display:flex;align-items:center;justify-content:center;gap:6px;padding:9px;border-radius:7px;border:1px solid #5FE3A1;background:transparent;color:#5FE3A1;font-size:12.5px;font-weight:600;cursor:pointer">' + icon("download2", 14) + ' Descargar respaldo</button>' +
             '<button class="cond" id="btn-importar-respaldo" style="flex:1;display:flex;align-items:center;justify-content:center;gap:6px;padding:9px;border-radius:7px;border:1px solid #D99A3D;background:transparent;color:#D99A3D;font-size:12.5px;font-weight:600;cursor:pointer">' + icon("upload", 14) + ' Restaurar respaldo</button>' +
@@ -3207,14 +3217,15 @@ function bindEvents() {
     const btnExportar = document.getElementById("btn-exportar-respaldo");
     if (btnExportar) {
       btnExportar.onclick = function () {
+        // Construido dinámicamente desde CAMPOS_PERSISTENTES: cualquier dato nuevo
+        // que se agregue ahí queda incluido aquí automáticamente, sin tocar este código.
         const respaldo = {
           tipo: "respaldo-bitacora-operativa",
-          version: 1,
+          version: 2,
           fechaExportacion: new Date().toISOString(),
-          eventos: state.eventos,
-          categorias: state.categorias,
-          responsables: state.responsables,
         };
+        CAMPOS_PERSISTENTES.forEach(function (c) { respaldo[c.campo] = state[c.campo]; });
+
         const blob = new Blob([JSON.stringify(respaldo, null, 2)], { type: "application/json" });
         const url = URL.createObjectURL(blob);
         const a = document.createElement("a");
@@ -3226,7 +3237,7 @@ function bindEvents() {
         document.body.removeChild(a);
         URL.revokeObjectURL(url);
         const msg = document.getElementById("respaldo-mensaje");
-        if (msg) { msg.style.color = "#5FE3A1"; msg.textContent = "✅ Respaldo descargado."; }
+        if (msg) { msg.style.color = "#5FE3A1"; msg.textContent = "✅ Respaldo descargado (" + CAMPOS_PERSISTENTES.length + " conjuntos de datos)."; }
       };
     }
 
@@ -3245,11 +3256,24 @@ function bindEvents() {
             if (!data || !Array.isArray(data.eventos)) {
               throw new Error("El archivo no tiene el formato esperado.");
             }
-            state.eventos = data.eventos;
-            if (Array.isArray(data.categorias) && data.categorias.length) state.categorias = data.categorias;
-            if (Array.isArray(data.responsables) && data.responsables.length) state.responsables = data.responsables;
+            // Restaura cada campo presente en el archivo, también de forma dinámica.
+            // Los eventos siempre se restauran (incluso vacíos); el resto solo si
+            // el archivo trae algo, para no borrar datos nuevos con un respaldo viejo
+            // que no los conocía todavía.
+            const detalle = [];
+            CAMPOS_PERSISTENTES.forEach(function (c) {
+              if (c.campo === "eventos") {
+                state.eventos = data.eventos;
+                detalle.push(data.eventos.length + " eventos");
+                return;
+              }
+              if (Array.isArray(data[c.campo]) && data[c.campo].length) {
+                state[c.campo] = data[c.campo];
+                detalle.push(data[c.campo].length + " " + c.campo);
+              }
+            });
             persist();
-            if (msg) { msg.style.color = "#5FE3A1"; msg.textContent = "✅ Respaldo restaurado: " + data.eventos.length + " eventos cargados."; }
+            if (msg) { msg.style.color = "#5FE3A1"; msg.textContent = "✅ Respaldo restaurado: " + detalle.join(", ") + "."; }
             render();
           } catch (err) {
             if (msg) { msg.style.color = "#E0524A"; msg.textContent = "❌ No se pudo leer el archivo: " + err.message; }
