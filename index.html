@@ -395,6 +395,7 @@ const PERSONAL_KEY = "bitacora:personal";
 const HECHOS_KEY = "bitacora:hechos";
 const BUQUES_KEY = "bitacora:buques";
 const ACTIVIDADES_TRAFICO_KEY = "bitacora:actividadesTrafico";
+const ULTIMA_NAV_KEY = "bitacora:ultimaNavegacion"; // preferencia de UI, no se incluye en el respaldo de datos
 const DELEG_KEY = "bitacora:delegaciones";
 
 function loadLocal(key, fallback) {
@@ -479,9 +480,13 @@ function downloadICSBatch(eventos, nombre) {
 /* ============================================================
    ESTADO GLOBAL
    ============================================================ */
+const ultimaNav = loadLocal(ULTIMA_NAV_KEY, { seccion: "calendario", vista: "semana" });
+const SECCIONES_VALIDAS = ["calendario", "personal", "delegacion", "molo"];
+const VISTAS_VALIDAS = ["agenda", "semana", "mes"];
+
 const state = {
-  seccion: "calendario", // "calendario" | "personal" | "delegacion"
-  vista: "semana",
+  seccion: SECCIONES_VALIDAS.indexOf(ultimaNav.seccion) !== -1 ? ultimaNav.seccion : "calendario",
+  vista: VISTAS_VALIDAS.indexOf(ultimaNav.vista) !== -1 ? ultimaNav.vista : "semana",
   cursor: new Date(),
   eventos: loadLocal(STORAGE_KEY, []),
   categorias: loadLocal(CAT_KEY, CATEGORIAS_DEFAULT),
@@ -512,7 +517,7 @@ const state = {
   eliminarActividadPendienteId: null,
   celdaMoloDetalle: null, // { buqueId, fecha } cuando se abre el detalle de una celda
   diasColapsados: {},
-  ocultarCompletadasCalendario: false,
+  ocultarCompletadasCalendario: true,
   filtroCategorias: [], // array de ids; vacío = todas
   filtroResponsables: [], // array de nombres; vacío = todos
   dropdownFiltroAbierto: null, // 'categoria' | 'responsable' | null
@@ -2242,6 +2247,11 @@ function renderDrawerSecciones() {
           '</div>'
           : '') +
         '<div style="display:flex;flex-direction:column;gap:4px;padding:8px">' + itemsHtml + '</div>' +
+        '<div style="margin-top:auto;padding:12px 16px;border-top:1px solid #1E3247;padding-bottom:max(12px, env(safe-area-inset-bottom))">' +
+          '<button class="cond" id="btn-diagnostico" style="width:100%;display:flex;align-items:center;justify-content:center;gap:6px;padding:9px;border-radius:7px;border:1px solid #2A3F54;background:transparent;color:#5C7184;font-size:12px;cursor:pointer">' +
+            '📶 Estado sin internet / Respaldo de datos' +
+          '</button>' +
+        '</div>' +
       '</div>' +
     '</div>'
   );
@@ -2909,17 +2919,17 @@ function renderModalConfirmarEliminar() {
 /* ============================================================
    RENDER PRINCIPAL
    ============================================================ */
-function renderPieDePagina() {
-  return (
-    '<div style="display:flex;justify-content:center;padding:24px 18px 30px;border-top:1px solid #1E3247;margin-top:10px">' +
-      '<button class="cond" id="btn-diagnostico" style="display:flex;align-items:center;gap:6px;padding:8px 14px;border-radius:7px;border:1px solid #2A3F54;background:transparent;color:#5C7184;font-size:12px;cursor:pointer">' +
-        '📶 Estado sin internet / Respaldo de datos' +
-      '</button>' +
-    '</div>'
-  );
+let ultimaNavGuardada = { seccion: state.seccion, vista: state.vista };
+saveLocal(ULTIMA_NAV_KEY, ultimaNavGuardada); // asegura que la clave exista desde el primer arranque
+function guardarUltimaNavegacionSiCambio() {
+  if (ultimaNavGuardada.seccion !== state.seccion || ultimaNavGuardada.vista !== state.vista) {
+    ultimaNavGuardada = { seccion: state.seccion, vista: state.vista };
+    saveLocal(ULTIMA_NAV_KEY, ultimaNavGuardada);
+  }
 }
 
 function render() {
+  guardarUltimaNavegacionSiCambio();
   let html;
   if (state.seccion === "personal") {
     html = renderTopbar() + renderSeccionPersonal();
@@ -2946,7 +2956,6 @@ function render() {
       renderControles() +
       (state.vista === "agenda" ? "" : renderNavTemporal()) +
       '<div class="view-area">' + (state.vista === "agenda" ? renderVistaAgenda() : state.vista === "semana" ? renderVistaSemana() : renderVistaMes()) + '</div>' +
-      renderPieDePagina() +
       fab +
       modalHtml +
       confirmHtml;
