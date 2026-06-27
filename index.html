@@ -50,16 +50,34 @@
   .stat-num { font-size: 18px; font-weight: 700; }
   .stat-label { color: #8AA0B5; font-size: 11px; letter-spacing: 0.5px; }
 
-  .seccion-nav {
-    display: flex; gap: 0; background: #0A1622; border-bottom: 1px solid #1E3247;
-    padding: 0 12px; overflow-x: auto;
+  .barra-secciones-btn {
+    width: 100%; display: flex; align-items: center; justify-content: center; gap: 8px;
+    padding: 11px 16px; border: none; border-bottom: 1px solid #1E3247;
+    background: #0A1622; color: #C9D2DA; font-size: 13.5px; font-weight: 600; cursor: pointer;
+    font-family: -apple-system, system-ui, sans-serif;
   }
-  .seccion-btn {
-    display: flex; align-items: center; gap: 6px; padding: 11px 16px; border: none; background: transparent;
-    color: #8AA0B5; font-size: 13px; font-weight: 600; cursor: pointer; white-space: nowrap;
-    border-bottom: 2px solid transparent; font-family: -apple-system, system-ui, sans-serif;
+  .barra-secciones-btn:active { background: #0E2235; }
+
+  .drawer-overlay {
+    position: fixed; inset: 0; background: rgba(5,12,20,0.6); backdrop-filter: blur(1px);
+    z-index: 60; display: flex;
   }
-  .seccion-btn.active { color: #D99A3D; border-bottom-color: #D99A3D; }
+  .drawer-panel {
+    width: 250px; max-width: 80vw; height: 100%; background: #0E2235; border-right: 1px solid #2A3F54;
+    box-shadow: 8px 0 30px rgba(0,0,0,0.5); display: flex; flex-direction: column;
+    animation: drawer-slide-in 0.18s ease-out;
+  }
+  @keyframes drawer-slide-in { from { transform: translateX(-100%); } to { transform: translateX(0); } }
+  .drawer-header {
+    display: flex; align-items: center; justify-content: space-between; padding: 16px 16px 12px;
+    border-bottom: 1px solid #1E3247; padding-top: max(16px, env(safe-area-inset-top));
+  }
+  .drawer-item {
+    display: flex; align-items: center; gap: 12px; padding: 12px 14px; border-radius: 8px; border: none;
+    background: transparent; color: #C9D2DA; font-size: 14.5px; font-weight: 600; cursor: pointer; text-align: left;
+    font-family: -apple-system, system-ui, sans-serif;
+  }
+  .drawer-item.active { background: rgba(217,154,61,0.12); color: #D99A3D; }
 
   .persona-card {
     display: flex; align-items: center; justify-content: space-between; gap: 12px;
@@ -123,7 +141,8 @@
     width: 34px; height: 34px; display: flex; align-items: center; justify-content: center; cursor: pointer;
   }
 
-  .controls { padding: 14px 18px 0; display: flex; flex-wrap: wrap; gap: 10px; align-items: center; justify-content: space-between; }
+  .controls { padding: 14px 18px 0; display: flex; flex-direction: column; gap: 8px; }
+  .controls-fila { display: flex; gap: 8px; align-items: center; width: 100%; }
   .search-row {
     display: flex; align-items: center; gap: 8px; background: #0E2235; border: 1px solid #1E3247;
     border-radius: 8px; padding: 0 12px;
@@ -274,6 +293,8 @@ const ICONS = {
   chevronLeft: '<polyline points="15 18 9 12 15 6"/>',
   chevronRight: '<polyline points="9 18 15 12 9 6"/>',
   chevronDown: '<polyline points="6 9 12 15 18 9"/>',
+  menu: '<line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/>',
+  filter: '<polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/>',
   trash: '<polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/>',
   edit: '<path d="M17 3a2.85 2.85 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/>',
   tag: '<path d="M20.59 13.41 13 21l-9-9V3h9z"/><circle cx="7" cy="7" r="1.2" fill="currentColor"/>',
@@ -492,6 +513,8 @@ const state = {
   filtroCategorias: [], // array de ids; vacío = todas
   filtroResponsables: [], // array de nombres; vacío = todos
   dropdownFiltroAbierto: null, // 'categoria' | 'responsable' | null
+  drawerSeccionesAbierto: false,
+  panelFiltrosAbierto: false,
   busqueda: "",
   modal: null, // 'evento' | 'categorias' | 'detalleDia'
   eventoEditando: null,
@@ -2155,37 +2178,65 @@ function renderTopbar() {
   const completadosCount = eventosCompletados().length;
   const esCalendario = state.seccion === "calendario";
 
-  const statsHtml = esCalendario
-    ? (
-        '<div style="display:flex;gap:14px;align-items:center;font-size:13px;justify-content:center;flex-wrap:wrap;margin-top:8px">' +
-          '<div class="stat"><div class="stat-num mono" style="color:#C9D2DA">' + pendientesHoy.length + '</div><div class="stat-label">HOY PENDIENTE</div></div>' +
-          '<div class="stat"><div class="stat-num mono" style="color:' + (vencidos.length ? "#E0524A" : "#C9D2DA") + '">' + vencidos.length + '</div><div class="stat-label">VENCIDOS</div></div>' +
-          '<button class="cond" id="btn-completadas" style="display:flex;align-items:center;gap:6px;padding:8px 12px;border-radius:7px;border:1px solid #2A3F54;background:#0E2235;color:#5FE3A1;font-weight:600;font-size:12.5px;cursor:pointer;white-space:nowrap">' +
-            icon("checkCircle", 14) + ' Completadas' + (completadosCount ? ' <span class="mono" style="color:#5FE3A1;font-weight:700">(' + completadosCount + ')</span>' : '') + '</button>' +
-          (vencidos.length > 0 ?
-            '<button class="cond" id="btn-mover-todos" style="display:flex;align-items:center;gap:6px;padding:8px 12px;border-radius:7px;border:1px solid #E0524A;background:rgba(224,82,74,0.12);color:#E0524A;font-weight:600;font-size:12.5px;cursor:pointer;white-space:nowrap">' +
-              icon("skip", 14) + ' Mover vencidas a mañana</button>'
-            : '') +
-        '</div>'
-      )
-    : '';
+  const statsHtml =
+    '<div style="display:flex;gap:14px;align-items:center;font-size:13px;justify-content:center;flex-wrap:wrap;margin-top:8px">' +
+      '<div class="stat"><div class="stat-num mono" style="color:#C9D2DA">' + pendientesHoy.length + '</div><div class="stat-label">HOY PENDIENTE</div></div>' +
+      '<div class="stat"><div class="stat-num mono" style="color:' + (vencidos.length ? "#E0524A" : "#C9D2DA") + '">' + vencidos.length + '</div><div class="stat-label">VENCIDOS</div></div>' +
+      (vencidos.length > 0 ?
+        '<button class="cond" id="btn-mover-todos" style="display:flex;align-items:center;gap:6px;padding:8px 12px;border-radius:7px;border:1px solid #E0524A;background:rgba(224,82,74,0.12);color:#E0524A;font-weight:600;font-size:12.5px;cursor:pointer;white-space:nowrap">' +
+          icon("skip", 14) + ' Mover vencidas a mañana</button>'
+        : '') +
+    '</div>';
 
   return (
-    '<div class="topbar" style="grid-template-columns:auto 1fr">' +
-      '<div style="display:flex;align-items:center">' +
+    '<div class="topbar" style="grid-template-columns:1fr">' +
+      '<div style="display:flex;align-items:center;justify-content:center;gap:10px">' +
         '<div class="dot" style="background:' + (vencidos.length ? "#E0524A" : "#5FE3A1") + ';box-shadow:0 0 8px ' + (vencidos.length ? "#E0524A" : "#5FE3A1") + '"></div>' +
+        '<div style="text-align:center">' +
+          '<div class="topbar-titulo cond">AGENDA DE OPERACIONES</div>' +
+          '<div class="mono" id="dtg-clock" style="font-size:12px;color:#8AA0B5;font-weight:600;letter-spacing:0.5px;margin-top:2px">' + fmtDTG(new Date()) + '</div>' +
+        '</div>' +
       '</div>' +
-      '<div style="text-align:center">' +
-        '<div class="topbar-titulo cond">AGENDA DE OPERACIONES</div>' +
-        '<div class="mono" id="dtg-clock" style="font-size:12px;color:#8AA0B5;font-weight:600;letter-spacing:0.5px;margin-top:2px">' + fmtDTG(new Date()) + '</div>' +
-        statsHtml +
-      '</div>' +
+      statsHtml +
     '</div>' +
-    '<div class="seccion-nav">' +
-      '<button class="seccion-btn' + (esCalendario ? " active" : "") + '" id="sec-calendario">' + icon("calendar", 14) + ' Calendario</button>' +
-      '<button class="seccion-btn' + (state.seccion === "personal" ? " active" : "") + '" id="sec-personal">' + icon("users", 14) + ' Personal</button>' +
-      '<button class="seccion-btn' + (state.seccion === "delegacion" ? " active" : "") + '" id="sec-delegacion">' + icon("layers", 14) + ' Delegación</button>' +
-      '<button class="seccion-btn' + (state.seccion === "molo" ? " active" : "") + '" id="sec-molo">⚓ Molo</button>' +
+    '<button id="btn-abrir-drawer" class="barra-secciones-btn">' +
+      icon("menu", 16) +
+      '<span class="cond">' + SECCIONES_LABEL[state.seccion] + '</span>' +
+    '</button>' +
+    (state.drawerSeccionesAbierto ? renderDrawerSecciones() : "")
+  );
+}
+const SECCIONES_LABEL = {
+  calendario: "Calendario",
+  personal: "Personal",
+  delegacion: "Delegación",
+  molo: "Molo — Tráfico Portuario",
+};
+
+function renderDrawerSecciones() {
+  const items = [
+    { id: "calendario", label: "Calendario", icono: "calendar" },
+    { id: "personal", label: "Personal", icono: "users" },
+    { id: "delegacion", label: "Delegación", icono: "layers" },
+    { id: "molo", label: "Molo", icono: null, emoji: "⚓" },
+  ];
+  const itemsHtml = items.map(function (it) {
+    const active = state.seccion === it.id;
+    return '<button class="drawer-item' + (active ? " active" : "") + '" id="drawer-sec-' + it.id + '">' +
+      (it.icono ? icon(it.icono, 18) : '<span style="font-size:18px;line-height:1">' + it.emoji + '</span>') +
+      '<span class="cond">' + it.label + '</span>' +
+    '</button>';
+  }).join("");
+
+  return (
+    '<div class="drawer-overlay" id="drawer-overlay">' +
+      '<div class="drawer-panel" id="drawer-panel">' +
+        '<div class="drawer-header">' +
+          '<div class="mono" style="font-size:11px;color:#8AA0B5;letter-spacing:1px">SECCIONES</div>' +
+          '<button id="btn-cerrar-drawer" style="background:transparent;border:none;color:#8AA0B5;cursor:pointer;display:flex">' + icon("x", 18) + '</button>' +
+        '</div>' +
+        '<div style="display:flex;flex-direction:column;gap:4px;padding:8px">' + itemsHtml + '</div>' +
+      '</div>' +
     '</div>'
   );
 }
@@ -2194,7 +2245,40 @@ function renderTopbar() {
    RENDER — CONTROLES
    ============================================================ */
 function renderControles() {
-  // Lista de responsables con al menos un evento asignado, más los predefinidos, sin duplicados.
+  const catSeleccionadas = state.filtroCategorias || [];
+  const respSeleccionados = state.filtroResponsables || [];
+  const filtrosActivos = catSeleccionadas.length + respSeleccionados.length + (state.busqueda ? 1 : 0);
+  const completadosCount = eventosCompletados().length;
+
+  return (
+    '<div class="controls">' +
+      '<div class="controls-fila">' +
+        '<div class="tabgroup" style="flex:1">' +
+          '<button class="tabbtn' + (state.vista === "agenda" ? " active" : "") + '" id="tab-agenda" style="flex:1;justify-content:center">' + icon("list", 15) + ' Agenda</button>' +
+          '<button class="tabbtn' + (state.vista === "semana" ? " active" : "") + '" id="tab-semana" style="flex:1;justify-content:center">' + icon("calendar", 15) + ' Semana</button>' +
+          '<button class="tabbtn' + (state.vista === "mes" ? " active" : "") + '" id="tab-mes" style="flex:1;justify-content:center">' + icon("calendarDays", 15) + ' Mes</button>' +
+        '</div>' +
+      '</div>' +
+      '<div class="controls-fila">' +
+        '<button class="pillbtn cond" id="btn-abrir-panel-filtros" style="display:flex;align-items:center;justify-content:center;gap:6px;position:relative;flex:1">' +
+          icon("filter", 14) + ' Filtros' +
+          (filtrosActivos ? '<span class="mono" style="background:#D99A3D;color:#0B1B2B;border-radius:10px;padding:1px 6px;font-size:10.5px;font-weight:700">' + filtrosActivos + '</span>' : '') +
+        '</button>' +
+        '<button class="btn-primary cond" id="btn-nuevo-evento" style="flex:1;justify-content:center;white-space:nowrap">' + icon("plus", 15) + ' Evento</button>' +
+        '<button id="btn-toggle-ocultar-completadas-cal" title="' + (state.ocultarCompletadasCalendario ? "Mostrar completadas" : "Ocultar completadas") + '" style="display:flex;align-items:center;justify-content:center;width:38px;height:38px;border-radius:7px;border:1px solid #2A3F54;background:' + (state.ocultarCompletadasCalendario ? "#0E2235" : "transparent") + ';color:#8AA0B5;cursor:pointer;flex-shrink:0">' +
+          (state.ocultarCompletadasCalendario ? icon("checkCircle", 16) : icon("list", 16)) +
+        '</button>' +
+        '<button id="btn-completadas" title="Tareas completadas" style="display:flex;align-items:center;justify-content:center;position:relative;width:38px;height:38px;border-radius:7px;border:1px solid #2A3F54;background:transparent;color:#5FE3A1;cursor:pointer;flex-shrink:0">' +
+          icon("checkCircle", 16) +
+          (completadosCount ? '<span class="mono" style="position:absolute;top:-5px;right:-5px;background:#5FE3A1;color:#0B1B2B;border-radius:8px;padding:0px 4px;font-size:9.5px;font-weight:700;line-height:1.4">' + completadosCount + '</span>' : '') +
+        '</button>' +
+      '</div>' +
+    '</div>' +
+    (state.panelFiltrosAbierto ? renderPanelFiltros() : "")
+  );
+}
+
+function renderPanelFiltros() {
   const responsablesConDatos = Array.from(new Set(
     state.responsables.concat(
       state.eventos.map(function (e) { return e.responsable; }).filter(Boolean)
@@ -2204,81 +2288,66 @@ function renderControles() {
   const catSeleccionadas = state.filtroCategorias || [];
   const respSeleccionados = state.filtroResponsables || [];
 
-  const labelCategoria = catSeleccionadas.length === 0
-    ? "Todas las categorías"
-    : catSeleccionadas.length === 1
-      ? escapeHTML((catById(catSeleccionadas[0]) || {}).label || catSeleccionadas[0])
-      : catSeleccionadas.length + " categorías";
+  const catItemsHtml = state.categorias.map(function (c) {
+    const checked = catSeleccionadas.indexOf(c.id) !== -1;
+    return '<label class="filtro-dropdown-item">' +
+      '<input type="checkbox" data-action="filtro-cat-check" data-id="' + c.id + '"' + (checked ? " checked" : "") + ' />' +
+      '<span style="width:10px;height:10px;border-radius:3px;background:' + c.color + ';flex-shrink:0"></span>' +
+      '<span class="cond">' + escapeHTML(c.label) + '</span>' +
+    '</label>';
+  }).join("");
 
-  const labelResponsable = respSeleccionados.length === 0
-    ? "Todos los responsables"
-    : respSeleccionados.length === 1
-      ? escapeHTML(respSeleccionados[0])
-      : respSeleccionados.length + " responsables";
-
-  const dropdownCatHtml = state.dropdownFiltroAbierto === "categoria" ? (
-    '<div class="filtro-dropdown" id="dropdown-categoria">' +
-      '<div class="filtro-dropdown-header">' +
-        '<button class="cond filtro-dropdown-link" data-action="filtro-cat-todas">Todas</button>' +
-        '<button class="cond filtro-dropdown-link" data-action="filtro-cat-ninguna">Ninguna</button>' +
-      '</div>' +
-      state.categorias.map(function (c) {
-        const checked = catSeleccionadas.indexOf(c.id) !== -1;
-        return '<label class="filtro-dropdown-item">' +
-          '<input type="checkbox" data-action="filtro-cat-check" data-id="' + c.id + '"' + (checked ? " checked" : "") + ' />' +
-          '<span style="width:10px;height:10px;border-radius:3px;background:' + c.color + ';flex-shrink:0"></span>' +
-          '<span class="cond">' + escapeHTML(c.label) + '</span>' +
-        '</label>';
-      }).join("") +
-    '</div>'
-  ) : "";
-
-  const dropdownRespHtml = state.dropdownFiltroAbierto === "responsable" ? (
-    '<div class="filtro-dropdown" id="dropdown-responsable">' +
-      '<div class="filtro-dropdown-header">' +
-        '<button class="cond filtro-dropdown-link" data-action="filtro-resp-todos">Todos</button>' +
-        '<button class="cond filtro-dropdown-link" data-action="filtro-resp-ninguno">Ninguno</button>' +
-      '</div>' +
-      responsablesConDatos.map(function (r) {
+  const respItemsHtml = responsablesConDatos.length === 0
+    ? '<div class="cond" style="font-size:12px;color:#5C7184;font-style:italic;padding:6px">Sin responsables todavía.</div>'
+    : responsablesConDatos.map(function (r) {
         const checked = respSeleccionados.indexOf(r) !== -1;
         return '<label class="filtro-dropdown-item">' +
           '<input type="checkbox" data-action="filtro-resp-check" data-nombre="' + escapeHTML(r) + '"' + (checked ? " checked" : "") + ' />' +
           '<span class="cond">' + escapeHTML(r) + '</span>' +
         '</label>';
-      }).join("") +
-    '</div>'
-  ) : "";
+      }).join("");
 
   return (
-    '<div class="controls" style="flex-direction:column;align-items:stretch;gap:10px">' +
-      '<div class="search-row">' +
-        '<span style="color:#5C7184">' + icon("search", 15) + '</span>' +
-        '<input class="field" id="campo-busqueda" placeholder="Buscar por título, lugar o notas…" value="' + escapeHTML(state.busqueda) + '" style="border:none;background:transparent;padding:6px 0" />' +
-        (state.busqueda ? '<button id="btn-limpiar-busqueda" style="background:transparent;border:none;color:#8AA0B5;cursor:pointer;display:flex">' + icon("x", 14) + '</button>' : '') +
-      '</div>' +
-      '<div style="display:flex;flex-wrap:wrap;gap:10px;align-items:center;justify-content:space-between">' +
-      '<div class="tabgroup">' +
-        '<button class="tabbtn' + (state.vista === "agenda" ? " active" : "") + '" id="tab-agenda">' + icon("list", 15) + ' Agenda</button>' +
-        '<button class="tabbtn' + (state.vista === "semana" ? " active" : "") + '" id="tab-semana">' + icon("calendar", 15) + ' Semana</button>' +
-        '<button class="tabbtn' + (state.vista === "mes" ? " active" : "") + '" id="tab-mes">' + icon("calendarDays", 15) + ' Mes</button>' +
-      '</div>' +
-      '<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">' +
-        '<div style="position:relative">' +
-          '<button class="pill cond" id="btn-filtro-categoria" style="display:flex;align-items:center;gap:6px">' + labelCategoria + (catSeleccionadas.length ? '' : '') + ' ' + icon("chevronDown", 12) + '</button>' +
-          dropdownCatHtml +
+    '<div class="overlay" id="overlay-panel-filtros">' +
+      '<div class="modal" style="max-width:420px;align-self:flex-start;margin-top:60px">' +
+        '<div class="modal-head">' +
+          '<div class="modal-title mono">FILTROS</div>' +
+          '<button class="iconbtn" id="btn-cerrar-panel-filtros">' + icon("x", 16) + '</button>' +
         '</div>' +
-        '<div style="position:relative">' +
-          '<button class="pill cond" id="btn-filtro-responsable" style="display:flex;align-items:center;gap:6px">' + labelResponsable + ' ' + icon("chevronDown", 12) + '</button>' +
-          dropdownRespHtml +
+
+        '<div class="campo">' +
+          '<label class="campo-label mono">BUSCAR</label>' +
+          '<div class="search-row">' +
+            '<span style="color:#5C7184">' + icon("search", 15) + '</span>' +
+            '<input class="field" id="campo-busqueda" placeholder="Título, lugar o notas…" value="' + escapeHTML(state.busqueda) + '" style="border:none;background:transparent;padding:6px 0" />' +
+            (state.busqueda ? '<button id="btn-limpiar-busqueda" style="background:transparent;border:none;color:#8AA0B5;cursor:pointer;display:flex">' + icon("x", 14) + '</button>' : '') +
+          '</div>' +
         '</div>' +
-        '<button class="cond" id="btn-toggle-ocultar-completadas-cal" style="display:flex;align-items:center;gap:6px;padding:7px 12px;border-radius:6px;border:1px solid #2A3F54;background:' + (state.ocultarCompletadasCalendario ? "#0E2235" : "transparent") + ';color:#8AA0B5;font-size:13px;cursor:pointer">' +
-          (state.ocultarCompletadasCalendario ? icon("checkCircle", 14) : icon("list", 14)) + ' ' + (state.ocultarCompletadasCalendario ? "Mostrar completadas" : "Ocultar completadas") +
-        '</button>' +
-        '<button class="pillbtn cond" id="btn-categorias" style="display:flex;align-items:center;gap:6px">' + icon("tag", 14) + ' Categorías</button>' +
-        '<button class="pillbtn cond" id="btn-diagnostico" style="display:flex;align-items:center;gap:6px" title="Estado del modo sin internet">📶 Offline</button>' +
-        '<button class="btn-primary cond" id="btn-nuevo-evento">' + icon("plus", 15) + ' Nuevo evento</button>' +
+
+        '<div class="campo">' +
+          '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">' +
+            '<label class="campo-label mono" style="margin:0">CATEGORÍAS</label>' +
+            '<div style="display:flex;gap:10px">' +
+              '<button class="cond filtro-dropdown-link" data-action="filtro-cat-todas">Todas</button>' +
+              '<button class="cond filtro-dropdown-link" data-action="filtro-cat-ninguna">Ninguna</button>' +
+            '</div>' +
+          '</div>' +
+          '<div style="max-height:160px;overflow-y:auto;border:1px solid #1E3247;border-radius:8px;padding:6px" class="scrollbar">' + catItemsHtml + '</div>' +
+        '</div>' +
+
+        '<div class="campo">' +
+          '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">' +
+            '<label class="campo-label mono" style="margin:0">RESPONSABLES</label>' +
+            '<div style="display:flex;gap:10px">' +
+              '<button class="cond filtro-dropdown-link" data-action="filtro-resp-todos">Todos</button>' +
+              '<button class="cond filtro-dropdown-link" data-action="filtro-resp-ninguno">Ninguno</button>' +
+            '</div>' +
+          '</div>' +
+          '<div style="max-height:160px;overflow-y:auto;border:1px solid #1E3247;border-radius:8px;padding:6px" class="scrollbar">' + respItemsHtml + '</div>' +
+        '</div>' +
+
+        '<button class="pillbtn cond" id="btn-categorias" style="width:100%;justify-content:center;display:flex;align-items:center;gap:6px">' + icon("tag", 14) + ' Gestionar categorías y responsables</button>' +
       '</div>' +
-    '</div>' +
     '</div>'
   );
 }
@@ -2834,6 +2903,16 @@ function renderModalConfirmarEliminar() {
 /* ============================================================
    RENDER PRINCIPAL
    ============================================================ */
+function renderPieDePagina() {
+  return (
+    '<div style="display:flex;justify-content:center;padding:24px 18px 30px;border-top:1px solid #1E3247;margin-top:10px">' +
+      '<button class="cond" id="btn-diagnostico" style="display:flex;align-items:center;gap:6px;padding:8px 14px;border-radius:7px;border:1px solid #2A3F54;background:transparent;color:#5C7184;font-size:12px;cursor:pointer">' +
+        '📶 Estado sin internet / Respaldo de datos' +
+      '</button>' +
+    '</div>'
+  );
+}
+
 function render() {
   let html;
   if (state.seccion === "personal") {
@@ -2861,6 +2940,7 @@ function render() {
       renderControles() +
       (state.vista === "agenda" ? "" : renderNavTemporal()) +
       '<div class="view-area">' + (state.vista === "agenda" ? renderVistaAgenda() : state.vista === "semana" ? renderVistaSemana() : renderVistaMes()) + '</div>' +
+      renderPieDePagina() +
       fab +
       modalHtml +
       confirmHtml;
@@ -2876,15 +2956,22 @@ function render() {
 function bindEvents() {
   const app = document.getElementById("app");
 
-  // Navegación entre secciones principales (Calendario / Personal / Delegación / Molo)
-  const secCalendario = document.getElementById("sec-calendario");
-  const secPersonal = document.getElementById("sec-personal");
-  const secDelegacion = document.getElementById("sec-delegacion");
-  const secMolo = document.getElementById("sec-molo");
-  if (secCalendario) secCalendario.onclick = function () { state.seccion = "calendario"; render(); };
-  if (secPersonal) secPersonal.onclick = function () { state.seccion = "personal"; render(); };
-  if (secDelegacion) secDelegacion.onclick = function () { state.seccion = "delegacion"; render(); };
-  if (secMolo) secMolo.onclick = function () { state.seccion = "molo"; render(); };
+  // Menú hamburguesa: abre/cierra el drawer lateral de secciones.
+  const btnAbrirDrawer = document.getElementById("btn-abrir-drawer");
+  if (btnAbrirDrawer) btnAbrirDrawer.onclick = function () { state.drawerSeccionesAbierto = true; render(); };
+  const btnCerrarDrawer = document.getElementById("btn-cerrar-drawer");
+  if (btnCerrarDrawer) btnCerrarDrawer.onclick = function () { state.drawerSeccionesAbierto = false; render(); };
+  const drawerOverlay = document.getElementById("drawer-overlay");
+  if (drawerOverlay) drawerOverlay.onclick = function (e) { if (e.target === drawerOverlay) { state.drawerSeccionesAbierto = false; render(); } };
+  ["calendario", "personal", "delegacion", "molo"].forEach(function (sec) {
+    const btn = document.getElementById("drawer-sec-" + sec);
+    if (btn) btn.onclick = function () { state.seccion = sec; state.drawerSeccionesAbierto = false; render(); };
+  });
+
+  // El contador de pendientes/vencidos y su botón viven en la topbar, visible en
+  // cualquier sección, así que se bindea aquí (antes del return temprano por sección).
+  const btnMoverTodosGlobal = document.getElementById("btn-mover-todos");
+  if (btnMoverTodosGlobal) btnMoverTodosGlobal.onclick = moverTodosVencidos;
 
   // Si no estamos en la sección calendario, el resto de bindings de esa sección no aplica.
   if (state.seccion !== "calendario") {
@@ -2921,23 +3008,14 @@ function bindEvents() {
   if (tabSemana) tabSemana.onclick = function () { state.vista = "semana"; render(); };
   if (tabMes) tabMes.onclick = function () { state.vista = "mes"; render(); };
 
-  // Filtros de categoría y responsable (multi-selección vía dropdown de checkboxes)
-  const btnFiltroCategoria = document.getElementById("btn-filtro-categoria");
-  if (btnFiltroCategoria) {
-    btnFiltroCategoria.onclick = function (e) {
-      e.stopPropagation();
-      state.dropdownFiltroAbierto = state.dropdownFiltroAbierto === "categoria" ? null : "categoria";
-      render();
-    };
-  }
-  const btnFiltroResponsable = document.getElementById("btn-filtro-responsable");
-  if (btnFiltroResponsable) {
-    btnFiltroResponsable.onclick = function (e) {
-      e.stopPropagation();
-      state.dropdownFiltroAbierto = state.dropdownFiltroAbierto === "responsable" ? null : "responsable";
-      render();
-    };
-  }
+  // Panel de filtros agrupado (buscador, categorías, responsables, ocultar completadas)
+  const btnAbrirPanelFiltros = document.getElementById("btn-abrir-panel-filtros");
+  if (btnAbrirPanelFiltros) btnAbrirPanelFiltros.onclick = function () { state.panelFiltrosAbierto = true; render(); };
+  const btnCerrarPanelFiltros = document.getElementById("btn-cerrar-panel-filtros");
+  if (btnCerrarPanelFiltros) btnCerrarPanelFiltros.onclick = function () { state.panelFiltrosAbierto = false; render(); };
+  const overlayPanelFiltros = document.getElementById("overlay-panel-filtros");
+  if (overlayPanelFiltros) overlayPanelFiltros.onclick = function (e) { if (e.target === overlayPanelFiltros) { state.panelFiltrosAbierto = false; render(); } };
+
   document.querySelectorAll("[data-action='filtro-cat-check']").forEach(function (el) {
     el.onclick = function (e) {
       e.stopPropagation();
@@ -2975,14 +3053,6 @@ function bindEvents() {
       render();
     };
   });
-  // Cerrar los dropdowns al tocar fuera de ellos (cualquier clic dentro de #app que no
-  // haya sido detenido por stopPropagation llega hasta aquí y cierra el dropdown abierto).
-  if (state.dropdownFiltroAbierto) {
-    app.onclick = function () {
-      state.dropdownFiltroAbierto = null;
-      render();
-    };
-  }
 
   const btnToggleOcultarCal = document.getElementById("btn-toggle-ocultar-completadas-cal");
   if (btnToggleOcultarCal) btnToggleOcultarCal.onclick = function () { state.ocultarCompletadasCalendario = !state.ocultarCompletadasCalendario; render(); };
@@ -3006,15 +3076,13 @@ function bindEvents() {
 
   // Botones top
   const btnCategorias = document.getElementById("btn-categorias");
-  if (btnCategorias) btnCategorias.onclick = function () { state.modal = "categorias"; render(); };
+  if (btnCategorias) btnCategorias.onclick = function () { state.modal = "categorias"; state.panelFiltrosAbierto = false; render(); };
   const btnCompletadas = document.getElementById("btn-completadas");
   if (btnCompletadas) btnCompletadas.onclick = function () { state.modal = "completadas"; render(); };
   const btnDiagnostico = document.getElementById("btn-diagnostico");
   if (btnDiagnostico) btnDiagnostico.onclick = function () { state.modal = "diagnostico"; render(); };
   const btnNuevoEvento = document.getElementById("btn-nuevo-evento");
   if (btnNuevoEvento) btnNuevoEvento.onclick = function () { abrirNuevo(fmtISO(new Date())); };
-  const btnMoverTodos = document.getElementById("btn-mover-todos");
-  if (btnMoverTodos) btnMoverTodos.onclick = moverTodosVencidos;
 
   // Nav temporal
   const navPrev = document.getElementById("nav-prev");
