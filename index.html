@@ -1513,7 +1513,11 @@ function tipoActividadMoloById(id) {
 }
 function actividadesDeBuqueEnFecha(buqueId, fechaIso) {
   return state.actividadesTrafico
-    .filter(function (a) { return a.buqueId === buqueId && a.fecha === fechaIso; })
+    .filter(function (a) {
+      if (a.buqueId !== buqueId) return false;
+      const fin = a.fechaFin && a.fechaFin > a.fecha ? a.fechaFin : a.fecha;
+      return fechaIso >= a.fecha && fechaIso <= fin;
+    })
     .sort(function (a, b) { return (a.hora || "").localeCompare(b.hora || ""); });
 }
 
@@ -1605,7 +1609,7 @@ function renderSeccionMolo() {
     (state.modalMolo === "actividad" ? renderModalActividadMolo() : "") +
     (state.modalMolo === "tiposActividad" ? renderModalTiposActividad() : "") +
     (state.modalMolo === "gestionarBuques" ? renderModalGestionarBuques() : "") +
-    (state.celdaMoloDetalle ? renderModalDetalleCeldaMolo() : "") +
+    (state.celdaMoloDetalle && !state.modalMolo ? renderModalDetalleCeldaMolo() : "") +
     (state.modalMolo === "confirmarEliminarBuque" ? renderModalConfirmarEliminarGenerico(
         "¿Eliminar este buque?", "Se eliminarán también todas sus actividades registradas. Esta acción no se puede deshacer.",
         "btn-cancelar-eliminar-buque", "btn-confirmar-eliminar-buque"
@@ -1688,8 +1692,12 @@ function renderModalActividadMolo() {
   const a = state.actividadEditando;
   const buqueId = (a && a.buqueId) || (state.celdaMoloDetalle && state.celdaMoloDetalle.buqueId) || (state.buques[0] && state.buques[0].id) || "";
   const fecha = (a && a.fecha) || (state.celdaMoloDetalle && state.celdaMoloDetalle.fecha) || fmtISO(new Date());
+  const fechaFin = (a && a.fechaFin) || fecha;
   const tipo = (a && a.tipo) || (state.tiposActividadMolo[0] && state.tiposActividadMolo[0].id) || "";
   const hora = (a && a.hora) || "08:00";
+  const duracionTotal = (a && a.duracion) || 60;
+  const durHoras = Math.floor(duracionTotal / 60);
+  const durMinutos = duracionTotal % 60;
   const notas = (a && a.notas) || "";
 
   const buqueOptions = state.buques.map(function (b) {
@@ -1697,6 +1705,14 @@ function renderModalActividadMolo() {
   }).join("");
   const tipoOptions = state.tiposActividadMolo.map(function (t) {
     return '<option value="' + t.id + '"' + (tipo === t.id ? " selected" : "") + '>' + escapeHTML(t.label) + '</option>';
+  }).join("");
+
+  const horasOptions = [];
+  for (let h = 0; h <= 12; h++) {
+    horasOptions.push('<option value="' + h + '"' + (durHoras === h ? " selected" : "") + '>' + h + '</option>');
+  }
+  const minutosOptions = [0, 15, 30, 45].map(function (m) {
+    return '<option value="' + m + '"' + (durMinutos === m ? " selected" : "") + '>' + pad(m) + '</option>';
   }).join("");
 
   return (
@@ -1709,8 +1725,15 @@ function renderModalActividadMolo() {
         '<div class="campo"><label class="campo-label mono">BUQUE</label><select class="field" id="act-molo-buque">' + buqueOptions + '</select></div>' +
         '<div class="campo"><label class="campo-label mono">TIPO DE ACTIVIDAD</label><select class="field" id="act-molo-tipo">' + tipoOptions + '</select></div>' +
         '<div class="row-gap">' +
-          '<div class="campo" style="flex:1"><label class="campo-label mono">FECHA</label><input class="field" type="date" id="act-molo-fecha" value="' + fecha + '" /></div>' +
-          '<div class="campo" style="flex:1"><label class="campo-label mono">HORA</label><input class="field" type="time" id="act-molo-hora" value="' + hora + '" /></div>' +
+          '<div class="campo" style="flex:1"><label class="campo-label mono">FECHA INICIO</label><input class="field" type="date" id="act-molo-fecha" value="' + fecha + '" /></div>' +
+          '<div class="campo" style="flex:1"><label class="campo-label mono">FECHA TÉRMINO</label><input class="field" type="date" id="act-molo-fecha-fin" value="' + fechaFin + '" min="' + fecha + '" /></div>' +
+        '</div>' +
+        '<div class="row-gap">' +
+          '<div class="campo" style="flex:1"><label class="campo-label mono">HORA INICIO</label><input class="field" type="time" id="act-molo-hora" value="' + hora + '" />' +
+            '<div class="mono" id="act-molo-hora-termino" style="font-size:10.5px;color:#8AA0B5;margin-top:4px">Término: ' + calcularHoraTermino(hora, duracionTotal) + '</div>' +
+          '</div>' +
+          '<div class="campo" style="width:74px"><label class="campo-label mono">HORAS</label><select class="field" id="act-molo-dur-horas">' + horasOptions.join("") + '</select></div>' +
+          '<div class="campo" style="width:74px"><label class="campo-label mono">MIN.</label><select class="field" id="act-molo-dur-minutos">' + minutosOptions + '</select></div>' +
         '</div>' +
         '<div class="campo"><label class="campo-label mono">NOTAS (OPCIONAL)</label><textarea class="field" id="act-molo-notas" rows="2" placeholder="Detalles de la actividad…">' + escapeHTML(notas) + '</textarea></div>' +
         '<div id="act-molo-error"></div>' +
@@ -1882,23 +1905,49 @@ function bindEventsMolo() {
   const overlayActividadMolo = document.getElementById("overlay-actividad-molo");
   if (overlayActividadMolo) overlayActividadMolo.onclick = function (e) { if (e.target === overlayActividadMolo) { state.modalMolo = null; state.actividadEditando = null; render(); } };
 
+  const fechaInicioMolo = document.getElementById("act-molo-fecha");
+  const fechaFinMolo = document.getElementById("act-molo-fecha-fin");
+  if (fechaInicioMolo && fechaFinMolo) {
+    fechaInicioMolo.onchange = function () {
+      fechaFinMolo.min = fechaInicioMolo.value;
+      if (fechaFinMolo.value < fechaInicioMolo.value) fechaFinMolo.value = fechaInicioMolo.value;
+    };
+  }
+  const horaInicioMolo = document.getElementById("act-molo-hora");
+  const horasMoloSel = document.getElementById("act-molo-dur-horas");
+  const minutosMoloSel = document.getElementById("act-molo-dur-minutos");
+  const terminoMoloLabel = document.getElementById("act-molo-hora-termino");
+  function actualizarHoraTerminoMolo() {
+    if (!horaInicioMolo || !horasMoloSel || !minutosMoloSel || !terminoMoloLabel) return;
+    const durMin = (Number(horasMoloSel.value) || 0) * 60 + (Number(minutosMoloSel.value) || 0);
+    terminoMoloLabel.textContent = "Término: " + calcularHoraTermino(horaInicioMolo.value, durMin);
+  }
+  if (horaInicioMolo) horaInicioMolo.onchange = actualizarHoraTerminoMolo;
+  if (horasMoloSel) horasMoloSel.onchange = actualizarHoraTerminoMolo;
+  if (minutosMoloSel) minutosMoloSel.onchange = actualizarHoraTerminoMolo;
+
   const btnGuardarActividadMolo = document.getElementById("btn-guardar-actividad-molo");
   if (btnGuardarActividadMolo) {
     btnGuardarActividadMolo.onclick = function () {
       const buqueId = document.getElementById("act-molo-buque").value;
       const tipo = document.getElementById("act-molo-tipo").value;
       const fecha = document.getElementById("act-molo-fecha").value;
+      let fechaFin = document.getElementById("act-molo-fecha-fin").value || fecha;
       const hora = document.getElementById("act-molo-hora").value;
+      const durHoras = Number(document.getElementById("act-molo-dur-horas").value) || 0;
+      const durMinutos = Number(document.getElementById("act-molo-dur-minutos").value) || 0;
+      const duracion = durHoras * 60 + durMinutos;
       const notas = document.getElementById("act-molo-notas").value.trim();
       const errorBox = document.getElementById("act-molo-error");
       if (!buqueId) { errorBox.innerHTML = '<div class="error-text cond">Debes seleccionar un buque.</div>'; return; }
       if (!fecha) { errorBox.innerHTML = '<div class="error-text cond">La fecha es obligatoria.</div>'; return; }
+      if (fechaFin < fecha) { errorBox.innerHTML = '<div class="error-text cond">La fecha de término no puede ser anterior a la de inicio.</div>'; return; }
       if (state.actividadEditando) {
         state.actividadesTrafico = state.actividadesTrafico.map(function (a) {
-          return a.id === state.actividadEditando.id ? Object.assign({}, a, { buqueId: buqueId, tipo: tipo, fecha: fecha, hora: hora, notas: notas }) : a;
+          return a.id === state.actividadEditando.id ? Object.assign({}, a, { buqueId: buqueId, tipo: tipo, fecha: fecha, fechaFin: fechaFin, hora: hora, duracion: duracion, notas: notas }) : a;
         });
       } else {
-        state.actividadesTrafico.push({ id: uid(), buqueId: buqueId, tipo: tipo, fecha: fecha, hora: hora, notas: notas });
+        state.actividadesTrafico.push({ id: uid(), buqueId: buqueId, tipo: tipo, fecha: fecha, fechaFin: fechaFin, hora: hora, duracion: duracion, notas: notas });
       }
       persist();
       state.modalMolo = null;
@@ -1915,6 +1964,9 @@ function bindEventsMolo() {
   const btnAgregarActividadDesdeCelda = document.getElementById("btn-agregar-actividad-desde-celda");
   if (btnAgregarActividadDesdeCelda) {
     btnAgregarActividadDesdeCelda.onclick = function () {
+      // Importante: NO limpiar state.celdaMoloDetalle aquí — renderModalActividadMolo
+      // lo usa como fallback para pre-llenar buque y fecha. El detalle de celda se
+      // oculta automáticamente mientras modalMolo esté activo (ver condición en render).
       state.actividadEditando = null;
       state.modalMolo = "actividad";
       render();
