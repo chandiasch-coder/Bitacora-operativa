@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover" />
-<title>Agenda de Operaciones</title>
+<title>Planificador de Operaciones</title>
 
 <meta name="apple-mobile-web-app-capable" content="yes" />
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
@@ -71,6 +71,9 @@
   .drawer-header {
     display: flex; align-items: center; justify-content: space-between; padding: 16px 16px 12px;
     border-bottom: 1px solid #1E3247; padding-top: max(16px, env(safe-area-inset-top));
+  }
+  .drawer-stats {
+    display: flex; gap: 18px; justify-content: center; padding: 14px 16px; border-bottom: 1px solid #1E3247;
   }
   .drawer-item {
     display: flex; align-items: center; gap: 12px; padding: 12px 14px; border-radius: 8px; border: none;
@@ -211,7 +214,7 @@
   }
 
   .month-dow-sticky-wrap {
-    position: sticky; top: 0; z-index: 5; background: #0B1B2B;
+    position: sticky; top: env(safe-area-inset-top); z-index: 5; background: #0B1B2B;
     padding-top: 6px; padding-bottom: 4px; border-bottom: 1px solid #1E3247;
     overflow-x: auto; margin-bottom: 6px;
   }
@@ -2178,26 +2181,15 @@ function renderTopbar() {
   const completadosCount = eventosCompletados().length;
   const esCalendario = state.seccion === "calendario";
 
-  const statsHtml =
-    '<div style="display:flex;gap:14px;align-items:center;font-size:13px;justify-content:center;flex-wrap:wrap;margin-top:8px">' +
-      '<div class="stat"><div class="stat-num mono" style="color:#C9D2DA">' + pendientesHoy.length + '</div><div class="stat-label">HOY PENDIENTE</div></div>' +
-      '<div class="stat"><div class="stat-num mono" style="color:' + (vencidos.length ? "#E0524A" : "#C9D2DA") + '">' + vencidos.length + '</div><div class="stat-label">VENCIDOS</div></div>' +
-      (vencidos.length > 0 ?
-        '<button class="cond" id="btn-mover-todos" style="display:flex;align-items:center;gap:6px;padding:8px 12px;border-radius:7px;border:1px solid #E0524A;background:rgba(224,82,74,0.12);color:#E0524A;font-weight:600;font-size:12.5px;cursor:pointer;white-space:nowrap">' +
-          icon("skip", 14) + ' Mover vencidas a mañana</button>'
-        : '') +
-    '</div>';
-
   return (
     '<div class="topbar" style="grid-template-columns:1fr">' +
       '<div style="display:flex;align-items:center;justify-content:center;gap:10px">' +
         '<div class="dot" style="background:' + (vencidos.length ? "#E0524A" : "#5FE3A1") + ';box-shadow:0 0 8px ' + (vencidos.length ? "#E0524A" : "#5FE3A1") + '"></div>' +
         '<div style="text-align:center">' +
-          '<div class="topbar-titulo cond">AGENDA DE OPERACIONES</div>' +
+          '<div class="topbar-titulo cond">PLANIFICADOR DE OPERACIONES</div>' +
           '<div class="mono" id="dtg-clock" style="font-size:12px;color:#8AA0B5;font-weight:600;letter-spacing:0.5px;margin-top:2px">' + fmtDTG(new Date()) + '</div>' +
         '</div>' +
       '</div>' +
-      statsHtml +
     '</div>' +
     '<button id="btn-abrir-drawer" class="barra-secciones-btn">' +
       icon("menu", 16) +
@@ -2214,6 +2206,10 @@ const SECCIONES_LABEL = {
 };
 
 function renderDrawerSecciones() {
+  const hoyISO = fmtISO(new Date());
+  const pendientesHoy = (eventosPorFecha()[hoyISO] || []).filter(function (e) { return !e.completado; });
+  const vencidos = state.eventos.filter(function (e) { return !e.completado && e.fecha < hoyISO; });
+
   const items = [
     { id: "calendario", label: "Calendario", icono: "calendar" },
     { id: "personal", label: "Personal", icono: "users" },
@@ -2235,6 +2231,16 @@ function renderDrawerSecciones() {
           '<div class="mono" style="font-size:11px;color:#8AA0B5;letter-spacing:1px">SECCIONES</div>' +
           '<button id="btn-cerrar-drawer" style="background:transparent;border:none;color:#8AA0B5;cursor:pointer;display:flex">' + icon("x", 18) + '</button>' +
         '</div>' +
+        '<div class="drawer-stats">' +
+          '<div class="stat"><div class="stat-num mono" style="color:#C9D2DA">' + pendientesHoy.length + '</div><div class="stat-label">HOY PENDIENTE</div></div>' +
+          '<div class="stat"><div class="stat-num mono" style="color:' + (vencidos.length ? "#E0524A" : "#C9D2DA") + '">' + vencidos.length + '</div><div class="stat-label">VENCIDOS</div></div>' +
+        '</div>' +
+        (vencidos.length > 0 ?
+          '<div style="padding:0 16px 12px;border-bottom:1px solid #1E3247">' +
+            '<button class="cond" id="btn-mover-todos" style="width:100%;display:flex;align-items:center;justify-content:center;gap:6px;padding:9px;border-radius:7px;border:1px solid #E0524A;background:rgba(224,82,74,0.12);color:#E0524A;font-weight:600;font-size:12.5px;cursor:pointer">' +
+              icon("skip", 14) + ' Mover vencidas a mañana</button>' +
+          '</div>'
+          : '') +
         '<div style="display:flex;flex-direction:column;gap:4px;padding:8px">' + itemsHtml + '</div>' +
       '</div>' +
     '</div>'
