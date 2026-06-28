@@ -619,10 +619,12 @@ function inicialCategoria(cat) {
 function eventosVisibles() {
   // Las tareas completadas se muestran en semana/mes (tachadas, más oscuras) salvo
   // que el usuario active "Ocultar completadas"; el listado "Tareas Completadas"
-  // sigue existiendo además como vista de archivo histórico.
+  // sigue existiendo además como vista de archivo histórico. El filtro de ocultar
+  // completadas para eventos multi-día se aplica por día dentro de eventosPorFecha(),
+  // ya que un mismo evento puede estar completado en un día y no en otro.
   let base = state.eventos.slice();
   if (state.ocultarCompletadasCalendario) {
-    base = base.filter(function (e) { return !e.completado; });
+    base = base.filter(function (e) { return !todoElRangoCompletado(e) || esMultiDiaEvento(e); });
   }
   if (state.filtroCategorias && state.filtroCategorias.length) {
     base = base.filter(function (e) { return state.filtroCategorias.indexOf(e.categoria) !== -1; });
@@ -645,7 +647,7 @@ function eventosVisibles() {
 }
 function eventosCompletados() {
   return state.eventos
-    .filter(function (e) { return e.completado; })
+    .filter(function (e) { return todoElRangoCompletado(e); })
     .sort(function (a, b) { return (b.fecha + (b.hora || "")).localeCompare(a.fecha + (a.hora || "")); });
 }
 function eventosPorFecha() {
@@ -656,15 +658,23 @@ function eventosPorFecha() {
     const finDate = new Date(fin + "T00:00:00");
     while (cursor <= finDate) {
       const iso = fmtISO(cursor);
-      if (!map[iso]) map[iso] = [];
-      map[iso].push(e);
+      // Si está activo "ocultar completadas" y este evento multi-día ya está
+      // completado específicamente en este día, no lo agregamos a esta celda
+      // (aunque el evento en otras fechas del rango sí pueda seguir visible).
+      const ocultarAqui = state.ocultarCompletadasCalendario && estaCompletadoEnFecha(e, iso);
+      if (!ocultarAqui) {
+        if (!map[iso]) map[iso] = [];
+        map[iso].push(e);
+      }
       cursor = addDays(cursor, 1);
     }
   });
   Object.keys(map).forEach(function (k) {
     map[k].sort(function (a, b) {
       // Las tareas completadas siempre van al final del día, sin importar su hora.
-      if (!!a.completado !== !!b.completado) return a.completado ? 1 : -1;
+      const aCompletado = estaCompletadoEnFecha(a, k);
+      const bCompletado = estaCompletadoEnFecha(b, k);
+      if (aCompletado !== bCompletado) return aCompletado ? 1 : -1;
       return (a.hora || "").localeCompare(b.hora || "");
     });
   });
@@ -774,9 +784,38 @@ function confirmarEliminar() {
   state.eliminarPendienteId = null;
   render();
 }
-function toggleEstado(id) {
+function esMultiDiaEvento(ev) {
+  return !!(ev.fechaFin && ev.fechaFin > ev.fecha);
+}
+function estaCompletadoEnFecha(ev, fechaIso) {
+  if (esMultiDiaEvento(ev)) {
+    return Array.isArray(ev.completadoFechas) && ev.completadoFechas.indexOf(fechaIso) !== -1;
+  }
+  return !!ev.completado;
+}
+function todoElRangoCompletado(ev) {
+  if (!esMultiDiaEvento(ev)) return !!ev.completado;
+  const dias = [];
+  let cursor = new Date(ev.fecha + "T00:00:00");
+  const fin = new Date(ev.fechaFin + "T00:00:00");
+  while (cursor <= fin) { dias.push(fmtISO(cursor)); cursor = addDays(cursor, 1); }
+  const marcadas = Array.isArray(ev.completadoFechas) ? ev.completadoFechas : [];
+  return dias.every(function (d) { return marcadas.indexOf(d) !== -1; });
+}
+
+// toggleEstado(id, fechaIso): para eventos de un solo día, fechaIso se ignora y se
+// alterna el campo "completado" simple. Para eventos multi-día, se alterna SOLO
+// el día indicado dentro de completadoFechas, sin afectar el resto del rango.
+function toggleEstado(id, fechaIso) {
   state.eventos = state.eventos.map(function (e) {
-    return e.id === id ? Object.assign({}, e, { completado: !e.completado }) : e;
+    if (e.id !== id) return e;
+    if (esMultiDiaEvento(e) && fechaIso) {
+      const actuales = Array.isArray(e.completadoFechas) ? e.completadoFechas.slice() : [];
+      const idx = actuales.indexOf(fechaIso);
+      if (idx === -1) actuales.push(fechaIso); else actuales.splice(idx, 1);
+      return Object.assign({}, e, { completadoFechas: actuales, completado: todoElRangoCompletado(Object.assign({}, e, { completadoFechas: actuales })) });
+    }
+    return Object.assign({}, e, { completado: !e.completado });
   });
   persist();
   render();
@@ -784,13 +823,13 @@ function toggleEstado(id) {
 
 // Si el evento pertenece a una serie de repetición, pregunta si la acción aplica
 // solo a esta ocurrencia o a toda la serie, antes de proceder.
-function iniciarToggle(id) {
+function iniciarToggle(id, fechaIso) {
   const ev = state.eventos.find(function (e) { return e.id === id; });
   if (ev && ev.repetSerieId) {
-    state.eleccionSerie = { eventoId: id, accion: "toggle" };
+    state.eleccionSerie = { eventoId: id, accion: "toggle", fechaIso: fechaIso };
     render();
   } else {
-    toggleEstado(id);
+    toggleEstado(id, fechaIso);
   }
 }
 function iniciarEditar(id) {
@@ -812,7 +851,7 @@ function resolverEleccionSerie(alcance) {
 
   if (eleccion.accion === "toggle") {
     if (alcance === "ocurrencia") {
-      toggleEstado(ev.id);
+      toggleEstado(ev.id, eleccion.fechaIso);
     } else {
       const nuevoEstado = !ev.completado;
       state.eventos = state.eventos.map(function (e) {
@@ -860,7 +899,10 @@ function moverTodosVencidos() {
   const hoyISO = fmtISO(new Date());
   const mananaISO = fmtISO(addDays(new Date(), 1));
   state.eventos = state.eventos.map(function (e) {
-    if (e.completado || e.fecha >= hoyISO) return e;
+    if (todoElRangoCompletado(e) || e.fecha >= hoyISO) return e;
+    // No mover eventos multi-día que ya tienen al menos un día marcado como
+    // completado: mover todo el rango perdería ese progreso parcial registrado.
+    if (esMultiDiaEvento(e) && Array.isArray(e.completadoFechas) && e.completadoFechas.length > 0) return e;
     const update = { fecha: mananaISO };
     if (e.fechaFin && e.fechaFin > e.fecha) {
       const diasRango = Math.round((new Date(e.fechaFin + "T00:00:00") - new Date(e.fecha + "T00:00:00")) / 86400000);
@@ -2489,11 +2531,13 @@ function renderNavTemporal() {
 /* ============================================================
    RENDER — FILA DE EVENTO
    ============================================================ */
-function renderFilaEvento(ev, vencido) {
+function renderFilaEvento(ev, vencido, fechaCelda) {
   const cat = catById(ev.categoria);
   const color = (cat && cat.color) || "#8AA0B5";
   const prio = prioById(ev.prioridad);
   const esMultiDia = ev.fechaFin && ev.fechaFin > ev.fecha;
+  const fechaRef = fechaCelda || ev.fecha;
+  const completadoAqui = estaCompletadoEnFecha(ev, fechaRef);
   let rangoLabel = "";
   if (esMultiDia) {
     const dIni = new Date(ev.fecha + "T00:00:00");
@@ -2504,17 +2548,17 @@ function renderFilaEvento(ev, vencido) {
   const colorBanda = vencido ? "#E0524A" : color;
   const colorLetra = colorTextoLegible(colorBanda);
   const letraInicial = vencido ? "!" : inicialCategoria(cat);
-  const fondoFila = ev.completado ? "#070F18" : (vencido ? "rgba(224,82,74,0.06)" : "transparent");
+  const fondoFila = completadoAqui ? "#070F18" : (vencido ? "rgba(224,82,74,0.06)" : "transparent");
   return (
-    '<div class="fila-evento" data-action="editar-fila" data-id="' + ev.id + '" style="opacity:' + (ev.completado ? "0.65" : "1") + ';background:' + fondoFila + ';cursor:pointer;padding:0;gap:0">' +
+    '<div class="fila-evento" data-action="editar-fila" data-id="' + ev.id + '" style="opacity:' + (completadoAqui ? "0.65" : "1") + ';background:' + fondoFila + ';cursor:pointer;padding:0;gap:0">' +
       '<div class="mono" style="align-self:stretch;width:26px;min-width:26px;background:' + colorBanda + ';color:' + colorLetra + ';display:flex;align-items:center;justify-content:center;font-weight:700;font-size:14px;border-radius:6px 0 0 6px" title="' + escapeHTML((cat && cat.label) || "") + '">' + letraInicial + '</div>' +
       '<div style="display:flex;align-items:center;gap:10px;padding:9px 14px 9px 10px;flex:1;min-width:0">' +
-      '<button class="check" data-action="toggle" data-id="' + ev.id + '" style="border-color:' + color + ';background:' + (ev.completado ? color : "transparent") + ';display:flex;align-items:center;justify-content:center;color:#0B1B2B" title="Marcar">' + (ev.completado ? icon("checkCircle", 11) : "") + '</button>' +
+      '<button class="check" data-action="toggle" data-id="' + ev.id + '" data-fecha-celda="' + fechaRef + '" style="border-color:' + color + ';background:' + (completadoAqui ? color : "transparent") + ';display:flex;align-items:center;justify-content:center;color:#0B1B2B" title="Marcar">' + (completadoAqui ? icon("checkCircle", 11) : "") + '</button>' +
       '<div class="hora mono">' + (ev.hora || "—") + (horaTermino ? '<div style="font-size:9.5px;color:#5C7184;font-weight:500">' + horaTermino + '</div>' : "") + '</div>' +
       '<div style="flex:1;min-width:0">' +
-        '<div class="titulo cond' + (ev.completado ? " done" : "") + '">' + escapeHTML(ev.titulo) + '</div>' +
+        '<div class="titulo cond' + (completadoAqui ? " done" : "") + '">' + escapeHTML(ev.titulo) + '</div>' +
         '<div class="meta-row">' +
-          (ev.completado ? '<span class="mono" style="font-size:10px;color:#5FE3A1;font-weight:700">' + icon("checkCircle", 9) + ' LISTA</span>' : "") +
+          (completadoAqui ? '<span class="mono" style="font-size:10px;color:#5FE3A1;font-weight:700">' + icon("checkCircle", 9) + ' LISTA' + (esMultiDia ? " (este día)" : "") + '</span>' : "") +
           (vencido ? '<span class="meta-vencido mono">VENCIDO</span>' : "") +
           (esMultiDia ? '<span class="mono" style="font-size:10px;color:' + color + ';font-weight:600">' + icon("skip", 9) + ' ' + rangoLabel + '</span>' : "") +
           (ev.repetSerieId ? '<span class="mono" style="font-size:10px;color:#8AA0B5">↻</span>' : "") +
@@ -2572,7 +2616,7 @@ function renderVistaAgenda() {
       '<div>' +
         '<div class="mono" style="font-size:11.5px;font-weight:700;color:' + (esHoy ? "#D99A3D" : "#8AA0B5") + ';letter-spacing:0.5px;margin-bottom:6px;padding-left:2px">' + etiqueta.toUpperCase() + '</div>' +
         '<div class="daycard' + (esHoy ? " today" : "") + '" style="border-top:3px solid ' + (esHoy ? "#D99A3D" : "#1E3247") + '">' +
-          evs.map(function (ev) { return renderFilaEvento(ev, !ev.completado && ev.fecha < hoyISO); }).join("") +
+          evs.map(function (ev) { return renderFilaEvento(ev, !estaCompletadoEnFecha(ev, iso) && ev.fecha < hoyISO, iso); }).join("") +
         '</div>' +
       '</div>';
   });
@@ -2618,7 +2662,7 @@ function renderVistaSemana() {
           ? ""
           : (evs.length === 0
               ? '<div class="empty-day cond">Sin novedades</div>'
-              : evs.map(function (ev) { return renderFilaEvento(ev, !ev.completado && ev.fecha < hoyISO); }).join("")
+              : evs.map(function (ev) { return renderFilaEvento(ev, !estaCompletadoEnFecha(ev, iso) && ev.fecha < hoyISO, iso); }).join("")
             )
         ) +
       '</div>';
@@ -2649,7 +2693,7 @@ function renderVistaMes() {
       const cat = catById(ev.categoria);
       const color = (cat && cat.color) || "#8AA0B5";
       const letraInicial = inicialCategoria(cat);
-      return '<div class="month-evt cond' + (ev.completado ? " done" : "") + '" style="background:' + color + '22;border-left-color:' + color + '">' +
+      return '<div class="month-evt cond' + (estaCompletadoEnFecha(ev, iso) ? " done" : "") + '" style="background:' + color + '22;border-left-color:' + color + '">' +
         '<span class="mono" style="color:' + color + ';font-weight:700">' + letraInicial + '</span> ' +
         (ev.hora ? '<span class="mono" style="color:#D99A3D;font-weight:600">' + ev.hora + '</span> ' : "") + escapeHTML(ev.titulo) + '</div>';
     }).join("");
@@ -2858,7 +2902,7 @@ function renderModalDetalleDia() {
 
   const evsHtml = evs.length === 0
     ? '<div class="empty-state cond">Sin novedades este día.</div>'
-    : evs.map(function (ev) { return renderFilaEvento(ev, !ev.completado && ev.fecha < hoyISO); }).join("");
+    : evs.map(function (ev) { return renderFilaEvento(ev, !estaCompletadoEnFecha(ev, fecha) && ev.fecha < hoyISO, fecha); }).join("");
 
   return (
     '<div class="overlay" id="overlay-detalle-dia">' +
@@ -3370,7 +3414,7 @@ function bindEvents() {
     const id = el.getAttribute("data-id");
     const fecha = el.getAttribute("data-fecha");
 
-    if (action === "toggle") el.onclick = function (e) { e.stopPropagation(); iniciarToggle(id); };
+    if (action === "toggle") el.onclick = function (e) { e.stopPropagation(); iniciarToggle(id, el.getAttribute("data-fecha-celda")); };
     else if (action === "manana") el.onclick = function (e) { e.stopPropagation(); moverASiguienteDia(id); };
     else if (action === "export") el.onclick = function (e) {
       e.stopPropagation();
