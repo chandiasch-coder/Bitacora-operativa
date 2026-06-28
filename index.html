@@ -241,7 +241,7 @@
 
   .overlay {
     position: fixed; inset: 0; background: rgba(5,12,20,0.75); backdrop-filter: blur(2px);
-    display: flex; align-items: center; justify-content: center; padding: 16px; z-index: 50;
+    display: flex; align-items: center; justify-content: center; padding: 16px; z-index: 70;
   }
   .modal {
     background: #0E2235; border: 1px solid #2A3F54; border-radius: 12px; padding: 20px;
@@ -2947,7 +2947,6 @@ function render() {
     else if (state.modal === "categorias") modalHtml = renderModalCategorias();
     else if (state.modal === "detalleDia") modalHtml = renderModalDetalleDia();
     else if (state.modal === "completadas") modalHtml = renderModalCompletadas();
-    else if (state.modal === "diagnostico") modalHtml = renderModalDiagnostico();
 
     const confirmHtml = state.eliminarPendienteId ? renderModalConfirmarEliminar() : "";
 
@@ -2960,6 +2959,10 @@ function render() {
       modalHtml +
       confirmHtml;
   }
+
+  // El modal de diagnóstico (botón "Offline") vive en el drawer lateral, accesible
+  // desde cualquier sección, así que se agrega siempre al final, fuera del switch.
+  if (state.modal === "diagnostico") html += renderModalDiagnostico();
 
   document.getElementById("app").innerHTML = html;
   bindEvents();
@@ -2987,6 +2990,122 @@ function bindEvents() {
   // cualquier sección, así que se bindea aquí (antes del return temprano por sección).
   const btnMoverTodosGlobal = document.getElementById("btn-mover-todos");
   if (btnMoverTodosGlobal) btnMoverTodosGlobal.onclick = moverTodosVencidos;
+
+  // Botón "Offline" vive dentro del drawer; al abrir su modal, cerramos el drawer
+  // primero para que no quede un panel detrás de otro.
+  const btnDiagnosticoGlobal = document.getElementById("btn-diagnostico");
+  if (btnDiagnosticoGlobal) {
+    btnDiagnosticoGlobal.onclick = function () {
+      state.drawerSeccionesAbierto = false;
+      state.modal = "diagnostico";
+      render();
+    };
+  }
+
+  /* ---------- Modal diagnóstico (modo sin internet) ---------- */
+  if (state.modal === "diagnostico") {
+    const btnReintentar = document.getElementById("btn-reintentar-cache");
+    if (btnReintentar) {
+      btnReintentar.onclick = function () {
+        btnReintentar.textContent = "Guardando…";
+        if (!("serviceWorker" in navigator) || !("caches" in window)) {
+          window.swEstado.error = "Este navegador no soporta caché offline.";
+          render();
+          return;
+        }
+        navigator.serviceWorker.register("./sw.js", { scope: "./" }).then(function (reg) {
+          window.swEstado.registrado = true;
+          return reg.update();
+        }).then(function () {
+          return caches.open("bitacora-operativa-v1");
+        }).then(function (cache) {
+          return Promise.all([
+            cache.add(window.location.href),
+            cache.add(new URL("./index.html", window.location.href).href),
+            cache.add(new URL("./manifest.json", window.location.href).href),
+            cache.add(new URL("./sw.js", window.location.href).href),
+          ]);
+        }).then(function () {
+          window.swEstado.cacheado = true;
+          window.swEstado.error = null;
+          render();
+        }).catch(function (err) {
+          window.swEstado.error = "Error al reintentar: " + err.message;
+          render();
+        });
+      };
+    }
+
+    const btnExportar = document.getElementById("btn-exportar-respaldo");
+    if (btnExportar) {
+      btnExportar.onclick = function () {
+        // Construido dinámicamente desde CAMPOS_PERSISTENTES: cualquier dato nuevo
+        // que se agregue ahí queda incluido aquí automáticamente, sin tocar este código.
+        const respaldo = {
+          tipo: "respaldo-bitacora-operativa",
+          version: 2,
+          fechaExportacion: new Date().toISOString(),
+        };
+        CAMPOS_PERSISTENTES.forEach(function (c) { respaldo[c.campo] = state[c.campo]; });
+
+        const blob = new Blob([JSON.stringify(respaldo, null, 2)], { type: "application/json" });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        const hoyStr = fmtISO(new Date());
+        a.download = "respaldo_bitacora_" + hoyStr + ".json";
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+        const msg = document.getElementById("respaldo-mensaje");
+        if (msg) { msg.style.color = "#5FE3A1"; msg.textContent = "✅ Respaldo descargado (" + CAMPOS_PERSISTENTES.length + " conjuntos de datos)."; }
+      };
+    }
+
+    const inputArchivo = document.getElementById("input-archivo-respaldo");
+    const btnImportar = document.getElementById("btn-importar-respaldo");
+    if (btnImportar && inputArchivo) {
+      btnImportar.onclick = function () { inputArchivo.click(); };
+      inputArchivo.onchange = function (e) {
+        const file = e.target.files && e.target.files[0];
+        if (!file) return;
+        const reader = new FileReader();
+        reader.onload = function (ev) {
+          const msg = document.getElementById("respaldo-mensaje");
+          try {
+            const data = JSON.parse(ev.target.result);
+            if (!data || !Array.isArray(data.eventos)) {
+              throw new Error("El archivo no tiene el formato esperado.");
+            }
+            // Restaura cada campo presente en el archivo, también de forma dinámica.
+            // Los eventos siempre se restauran (incluso vacíos); el resto solo si
+            // el archivo trae algo, para no borrar datos nuevos con un respaldo viejo
+            // que no los conocía todavía.
+            const detalle = [];
+            CAMPOS_PERSISTENTES.forEach(function (c) {
+              if (c.campo === "eventos") {
+                state.eventos = data.eventos;
+                detalle.push(data.eventos.length + " eventos");
+                return;
+              }
+              if (Array.isArray(data[c.campo]) && data[c.campo].length) {
+                state[c.campo] = data[c.campo];
+                detalle.push(data[c.campo].length + " " + c.campo);
+              }
+            });
+            persist();
+            if (msg) { msg.style.color = "#5FE3A1"; msg.textContent = "✅ Respaldo restaurado: " + detalle.join(", ") + "."; }
+            render();
+          } catch (err) {
+            if (msg) { msg.style.color = "#E0524A"; msg.textContent = "❌ No se pudo leer el archivo: " + err.message; }
+            render();
+          }
+        };
+        reader.readAsText(file);
+      };
+    }
+  }
 
   // Si no estamos en la sección calendario, el resto de bindings de esa sección no aplica.
   if (state.seccion !== "calendario") {
@@ -3094,8 +3213,6 @@ function bindEvents() {
   if (btnCategorias) btnCategorias.onclick = function () { state.modal = "categorias"; state.panelFiltrosAbierto = false; render(); };
   const btnCompletadas = document.getElementById("btn-completadas");
   if (btnCompletadas) btnCompletadas.onclick = function () { state.modal = "completadas"; render(); };
-  const btnDiagnostico = document.getElementById("btn-diagnostico");
-  if (btnDiagnostico) btnDiagnostico.onclick = function () { state.modal = "diagnostico"; render(); };
   const btnNuevoEvento = document.getElementById("btn-nuevo-evento");
   if (btnNuevoEvento) btnNuevoEvento.onclick = function () { abrirNuevo(fmtISO(new Date())); };
 
@@ -3384,110 +3501,6 @@ function bindEvents() {
     }
   }
 
-  /* ---------- Modal diagnóstico (modo sin internet) ---------- */
-  if (state.modal === "diagnostico") {
-    const btnReintentar = document.getElementById("btn-reintentar-cache");
-    if (btnReintentar) {
-      btnReintentar.onclick = function () {
-        btnReintentar.textContent = "Guardando…";
-        if (!("serviceWorker" in navigator) || !("caches" in window)) {
-          window.swEstado.error = "Este navegador no soporta caché offline.";
-          render();
-          return;
-        }
-        navigator.serviceWorker.register("./sw.js", { scope: "./" }).then(function (reg) {
-          window.swEstado.registrado = true;
-          return reg.update();
-        }).then(function () {
-          return caches.open("bitacora-operativa-v1");
-        }).then(function (cache) {
-          return Promise.all([
-            cache.add(window.location.href),
-            cache.add(new URL("./index.html", window.location.href).href),
-            cache.add(new URL("./manifest.json", window.location.href).href),
-            cache.add(new URL("./sw.js", window.location.href).href),
-          ]);
-        }).then(function () {
-          window.swEstado.cacheado = true;
-          window.swEstado.error = null;
-          render();
-        }).catch(function (err) {
-          window.swEstado.error = "Error al reintentar: " + err.message;
-          render();
-        });
-      };
-    }
-
-    const btnExportar = document.getElementById("btn-exportar-respaldo");
-    if (btnExportar) {
-      btnExportar.onclick = function () {
-        // Construido dinámicamente desde CAMPOS_PERSISTENTES: cualquier dato nuevo
-        // que se agregue ahí queda incluido aquí automáticamente, sin tocar este código.
-        const respaldo = {
-          tipo: "respaldo-bitacora-operativa",
-          version: 2,
-          fechaExportacion: new Date().toISOString(),
-        };
-        CAMPOS_PERSISTENTES.forEach(function (c) { respaldo[c.campo] = state[c.campo]; });
-
-        const blob = new Blob([JSON.stringify(respaldo, null, 2)], { type: "application/json" });
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement("a");
-        a.href = url;
-        const hoyStr = fmtISO(new Date());
-        a.download = "respaldo_bitacora_" + hoyStr + ".json";
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
-        URL.revokeObjectURL(url);
-        const msg = document.getElementById("respaldo-mensaje");
-        if (msg) { msg.style.color = "#5FE3A1"; msg.textContent = "✅ Respaldo descargado (" + CAMPOS_PERSISTENTES.length + " conjuntos de datos)."; }
-      };
-    }
-
-    const inputArchivo = document.getElementById("input-archivo-respaldo");
-    const btnImportar = document.getElementById("btn-importar-respaldo");
-    if (btnImportar && inputArchivo) {
-      btnImportar.onclick = function () { inputArchivo.click(); };
-      inputArchivo.onchange = function (e) {
-        const file = e.target.files && e.target.files[0];
-        if (!file) return;
-        const reader = new FileReader();
-        reader.onload = function (ev) {
-          const msg = document.getElementById("respaldo-mensaje");
-          try {
-            const data = JSON.parse(ev.target.result);
-            if (!data || !Array.isArray(data.eventos)) {
-              throw new Error("El archivo no tiene el formato esperado.");
-            }
-            // Restaura cada campo presente en el archivo, también de forma dinámica.
-            // Los eventos siempre se restauran (incluso vacíos); el resto solo si
-            // el archivo trae algo, para no borrar datos nuevos con un respaldo viejo
-            // que no los conocía todavía.
-            const detalle = [];
-            CAMPOS_PERSISTENTES.forEach(function (c) {
-              if (c.campo === "eventos") {
-                state.eventos = data.eventos;
-                detalle.push(data.eventos.length + " eventos");
-                return;
-              }
-              if (Array.isArray(data[c.campo]) && data[c.campo].length) {
-                state[c.campo] = data[c.campo];
-                detalle.push(data[c.campo].length + " " + c.campo);
-              }
-            });
-            persist();
-            if (msg) { msg.style.color = "#5FE3A1"; msg.textContent = "✅ Respaldo restaurado: " + detalle.join(", ") + "."; }
-            render();
-          } catch (err) {
-            if (msg) { msg.style.color = "#E0524A"; msg.textContent = "❌ No se pudo leer el archivo: " + err.message; }
-            render();
-          }
-        };
-        reader.readAsText(file);
-      };
-    }
-  }
 }
 
 function renderRespSelectOnly(selected) {
