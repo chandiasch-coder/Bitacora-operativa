@@ -146,6 +146,12 @@
 
   .controls { padding: 14px 18px 0; display: flex; flex-direction: column; gap: 8px; }
   .controls-fila { display: flex; gap: 8px; align-items: center; width: 100%; }
+  .barra-acciones-fija {
+    position: fixed; left: 0; right: 0; bottom: 0; z-index: 40;
+    background: #0E2235; border-top: 1px solid #2A3F54;
+    padding: 10px 14px max(10px, env(safe-area-inset-bottom));
+    box-shadow: 0 -4px 16px rgba(0,0,0,0.35);
+  }
   .search-row {
     display: flex; align-items: center; gap: 8px; background: #0E2235; border: 1px solid #1E3247;
     border-radius: 8px; padding: 0 12px;
@@ -237,7 +243,7 @@
   .month-more { font-size: 10.5px; color: #5C7184; font-family: ui-monospace, monospace; padding-top: 1px; }
 
   .fab {
-    position: fixed; bottom: max(18px, env(safe-area-inset-bottom)); right: 18px;
+    position: fixed; bottom: max(110px, calc(110px + env(safe-area-inset-bottom))); right: 18px;
     display: flex; align-items: center; gap: 8px; padding: 11px 16px; border-radius: 24px;
     border: 1px solid #2A3F54; background: #0E2235; color: #D99A3D; font-weight: 600; font-size: 13px;
     cursor: pointer; box-shadow: 0 4px 16px rgba(0,0,0,0.4); z-index: 40;
@@ -303,6 +309,7 @@ const ICONS = {
   menu: '<line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/>',
   filter: '<polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/>',
   megaphone: '<path d="m3 11 18-5v12L3 14v-3z"/><path d="M11.6 16.8a3 3 0 1 1-5.8-1.6"/>',
+  undo: '<path d="M3 7v6h6"/><path d="M21 17a9 9 0 0 0-15-6.7L3 13"/>',
   trash: '<polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/>',
   edit: '<path d="M17 3a2.85 2.85 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/>',
   tag: '<path d="M20.59 13.41 13 21l-9-9V3h9z"/><circle cx="7" cy="7" r="1.2" fill="currentColor"/>',
@@ -554,10 +561,46 @@ const CAMPOS_PERSISTENTES = [
   { campo: "actividadesTrafico", clave: ACTIVIDADES_TRAFICO_KEY },
 ];
 
+// Historial para "Deshacer": antes de cada guardado, se empuja una copia del
+// estado ANTERIOR (tal como estaba antes de este cambio) a una pila en memoria,
+// limitada a 10 pasos. Cubre cualquier acción que pase por persist() — es decir,
+// prácticamente todo cambio de datos de la app (crear, editar, eliminar, marcar
+// completado, mover, etc.), porque persist() es el único punto de guardado.
+const HISTORIAL_MAX = 10;
+let historialDeshacer = [];
+let aplicandoDeshacer = false;
+
 function persist() {
+  if (!aplicandoDeshacer) {
+    const snapshotAnterior = {};
+    CAMPOS_PERSISTENTES.forEach(function (c) {
+      snapshotAnterior[c.campo] = loadLocal(c.clave, null);
+    });
+    historialDeshacer.push(snapshotAnterior);
+    if (historialDeshacer.length > HISTORIAL_MAX) historialDeshacer.shift();
+  }
   CAMPOS_PERSISTENTES.forEach(function (c) {
     saveLocal(c.clave, state[c.campo]);
   });
+}
+
+function puedeDeshacer() {
+  return historialDeshacer.length > 0;
+}
+
+function deshacerUltimoCambio() {
+  const anterior = historialDeshacer.pop();
+  if (!anterior) return;
+  aplicandoDeshacer = true;
+  CAMPOS_PERSISTENTES.forEach(function (c) {
+    const valorPrevio = anterior[c.campo];
+    // Si el campo no existía antes (ej. la app no tenía aún esa sección), se
+    // restaura al valor por defecto correspondiente en vez de dejarlo null.
+    state[c.campo] = valorPrevio !== null && valorPrevio !== undefined ? valorPrevio : (Array.isArray(state[c.campo]) ? [] : state[c.campo]);
+    saveLocal(c.clave, state[c.campo]);
+  });
+  aplicandoDeshacer = false;
+  render();
 }
 
 // Migración única: las versiones anteriores guardaban las tareas delegadas en una
@@ -704,7 +747,8 @@ function cerrarModal() {
   state.editarSerieCompleta = null;
   render();
 }
-const REPETICION_HORIZONTE = 12; // número de ocurrencias futuras a generar
+const REPETICION_HORIZONTE_DEFAULT = 12; // si no se especifica fecha límite, número de ocurrencias futuras
+const REPETICION_TOPE_SEGURIDAD = 200; // límite duro para evitar generar miles de eventos por error
 
 function sumarRepeticion(fechaISO, tipo) {
   const d = new Date(fechaISO + "T00:00:00");
@@ -744,11 +788,17 @@ function guardarEvento(data) {
     state.eventos.push(primero);
 
     if (serieId) {
-      // Generar ocurrencias futuras manteniendo la misma duración del rango (fecha → fechaFin)
+      // Generar ocurrencias futuras manteniendo la misma duración del rango (fecha → fechaFin).
+      // Si el usuario indicó una fecha límite de repetición (data.repetirHasta), se generan
+      // ocurrencias hasta esa fecha inclusive; si no, se usa el horizonte por defecto (12).
+      // En ambos casos se respeta un tope duro de seguridad.
       const diasRango = Math.round((new Date(data.fechaFin + "T00:00:00") - new Date(data.fecha + "T00:00:00")) / 86400000);
       let fechaCursor = data.fecha;
-      for (let i = 0; i < REPETICION_HORIZONTE; i++) {
+      let i = 0;
+      while (i < REPETICION_TOPE_SEGURIDAD) {
         fechaCursor = sumarRepeticion(fechaCursor, data.repetir);
+        if (data.repetirHasta && fechaCursor > data.repetirHasta) break;
+        if (!data.repetirHasta && i >= REPETICION_HORIZONTE_DEFAULT) break;
         const fechaFinCursor = fmtISO(addDays(new Date(fechaCursor + "T00:00:00"), diasRango));
         state.eventos.push(Object.assign({}, data, {
           id: uid(),
@@ -757,6 +807,7 @@ function guardarEvento(data) {
           repetSerieId: serieId,
           completado: false,
         }));
+        i++;
       }
     }
   }
@@ -2376,6 +2427,9 @@ function renderDrawerSecciones() {
           : '') +
         '<div style="display:flex;flex-direction:column;gap:4px;padding:8px">' + itemsHtml + '</div>' +
         '<div style="margin-top:auto;padding:12px 16px;border-top:1px solid #1E3247;padding-bottom:max(12px, env(safe-area-inset-bottom))">' +
+          '<button class="cond" id="btn-deshacer" ' + (puedeDeshacer() ? '' : 'disabled') + ' style="width:100%;display:flex;align-items:center;justify-content:center;gap:6px;padding:9px;border-radius:7px;border:1px solid ' + (puedeDeshacer() ? "#D99A3D" : "#2A3F54") + ';background:transparent;color:' + (puedeDeshacer() ? "#D99A3D" : "#5C7184") + ';font-size:12.5px;font-weight:600;cursor:' + (puedeDeshacer() ? "pointer" : "default") + ';margin-bottom:8px;opacity:' + (puedeDeshacer() ? "1" : "0.5") + '">' +
+            icon("undo", 14) + ' Deshacer último movimiento' + (puedeDeshacer() ? ' <span class="mono">(' + historialDeshacer.length + ')</span>' : '') +
+          '</button>' +
           '<button class="cond" id="btn-diagnostico" style="width:100%;display:flex;align-items:center;justify-content:center;gap:6px;padding:9px;border-radius:7px;border:1px solid #2A3F54;background:transparent;color:#5C7184;font-size:12px;cursor:pointer">' +
             '📶 Estado sin internet / Respaldo de datos' +
           '</button>' +
@@ -2389,11 +2443,6 @@ function renderDrawerSecciones() {
    RENDER — CONTROLES
    ============================================================ */
 function renderControles() {
-  const catSeleccionadas = state.filtroCategorias || [];
-  const respSeleccionados = state.filtroResponsables || [];
-  const filtrosActivos = catSeleccionadas.length + respSeleccionados.length + (state.busqueda ? 1 : 0);
-  const completadosCount = eventosCompletados().length;
-
   return (
     '<div class="controls">' +
       '<div class="controls-fila">' +
@@ -2403,23 +2452,35 @@ function renderControles() {
           '<button class="tabbtn' + (state.vista === "mes" ? " active" : "") + '" id="tab-mes" style="flex:1;justify-content:center">' + icon("calendarDays", 15) + ' Mes</button>' +
         '</div>' +
       '</div>' +
-      '<div class="controls-fila">' +
-        '<button class="pillbtn cond" id="btn-abrir-panel-filtros" style="display:flex;align-items:center;justify-content:center;gap:6px;position:relative;flex:1">' +
-          icon("filter", 14) + ' Filtros' +
-          (filtrosActivos ? '<span class="mono" style="background:#D99A3D;color:#0B1B2B;border-radius:10px;padding:1px 6px;font-size:10.5px;font-weight:700">' + filtrosActivos + '</span>' : '') +
+    '</div>'
+  );
+}
+
+function renderBarraAccionesFija() {
+  const catSeleccionadas = state.filtroCategorias || [];
+  const respSeleccionados = state.filtroResponsables || [];
+  const filtrosActivos = catSeleccionadas.length + respSeleccionados.length + (state.busqueda ? 1 : 0);
+  const completadosCount = eventosCompletados().length;
+
+  return (
+    '<div class="barra-acciones-fija">' +
+      '<div class="controls-fila" style="padding:0;gap:8px">' +
+        '<button id="btn-abrir-panel-filtros" title="Filtros" style="display:flex;align-items:center;justify-content:center;position:relative;flex:1;height:42px;border-radius:7px;border:1px solid #2A3F54;background:transparent;color:#C9D2DA;cursor:pointer">' +
+          icon("filter", 17) +
+          (filtrosActivos ? '<span class="mono" style="position:absolute;top:-5px;right:8px;background:#D99A3D;color:#0B1B2B;border-radius:8px;padding:0px 4px;font-size:9.5px;font-weight:700;line-height:1.4">' + filtrosActivos + '</span>' : '') +
         '</button>' +
-        '<button class="btn-primary cond" id="btn-nuevo-evento" style="flex:1;justify-content:center;white-space:nowrap">' + icon("plus", 15) + ' Evento</button>' +
-        '<button id="btn-toggle-ocultar-completadas-cal" title="' + (state.ocultarCompletadasCalendario ? "Mostrar completadas" : "Ocultar completadas") + '" style="display:flex;align-items:center;justify-content:center;width:38px;height:38px;border-radius:7px;border:1px solid #2A3F54;background:' + (state.ocultarCompletadasCalendario ? "#0E2235" : "transparent") + ';color:#8AA0B5;cursor:pointer;flex-shrink:0">' +
-          (state.ocultarCompletadasCalendario ? icon("checkCircle", 16) : icon("list", 16)) +
+        '<button id="btn-toggle-ocultar-completadas-cal" title="' + (state.ocultarCompletadasCalendario ? "Mostrar completadas" : "Ocultar completadas") + '" style="display:flex;align-items:center;justify-content:center;flex:1;height:42px;border-radius:7px;border:1px solid #2A3F54;background:' + (state.ocultarCompletadasCalendario ? "#0E2235" : "transparent") + ';color:#8AA0B5;cursor:pointer">' +
+          (state.ocultarCompletadasCalendario ? icon("checkCircle", 17) : icon("list", 17)) +
         '</button>' +
-        '<button id="btn-completadas" title="Tareas completadas" style="display:flex;align-items:center;justify-content:center;position:relative;width:38px;height:38px;border-radius:7px;border:1px solid #2A3F54;background:transparent;color:#5FE3A1;cursor:pointer;flex-shrink:0">' +
-          icon("checkCircle", 16) +
-          (completadosCount ? '<span class="mono" style="position:absolute;top:-5px;right:-5px;background:#5FE3A1;color:#0B1B2B;border-radius:8px;padding:0px 4px;font-size:9.5px;font-weight:700;line-height:1.4">' + completadosCount + '</span>' : '') +
+        '<button id="btn-completadas" title="Tareas completadas" style="display:flex;align-items:center;justify-content:center;position:relative;flex:1;height:42px;border-radius:7px;border:1px solid #2A3F54;background:transparent;color:#5FE3A1;cursor:pointer">' +
+          icon("checkCircle", 17) +
+          (completadosCount ? '<span class="mono" style="position:absolute;top:-5px;right:8px;background:#5FE3A1;color:#0B1B2B;border-radius:8px;padding:0px 4px;font-size:9.5px;font-weight:700;line-height:1.4">' + completadosCount + '</span>' : '') +
         '</button>' +
-      '</div>' +
-      '<div class="controls-fila">' +
-        '<button id="btn-toggle-interdepartamental" style="width:100%;display:flex;align-items:center;justify-content:center;gap:6px;padding:9px;border-radius:7px;border:1px solid ' + (state.soloInterdepartamental ? "#D99A3D" : "#2A3F54") + ';background:' + (state.soloInterdepartamental ? "rgba(217,154,61,0.12)" : "transparent") + ';color:' + (state.soloInterdepartamental ? "#D99A3D" : "#8AA0B5") + ';font-size:13px;font-weight:600;cursor:pointer">' +
-          icon("megaphone", 15) + ' Solo interdepartamentales' +
+        '<button id="btn-toggle-interdepartamental" title="Solo interdepartamentales" style="display:flex;align-items:center;justify-content:center;flex:1;height:42px;border-radius:7px;border:1px solid ' + (state.soloInterdepartamental ? "#D99A3D" : "#2A3F54") + ';background:' + (state.soloInterdepartamental ? "rgba(217,154,61,0.18)" : "transparent") + ';color:#D99A3D;cursor:pointer">' +
+          icon("megaphone", 17) +
+        '</button>' +
+        '<button id="btn-nuevo-evento" title="Nuevo evento" style="display:flex;align-items:center;justify-content:center;flex:1;height:42px;border-radius:7px;border:none;background:#5FE3A1;color:#0B1B2B;cursor:pointer">' +
+          icon("plus", 20) +
         '</button>' +
       '</div>' +
     '</div>' +
@@ -2750,6 +2811,7 @@ function renderModalEvento() {
   const notas = (ev && ev.notas) || "";
   const titulo = (ev && ev.titulo) || "";
   const repetir = (ev && ev.repetir) || "nunca";
+  const repetirHasta = (ev && ev.repetirHasta) || "";
   const interdepartamental = !!(ev && ev.interdepartamental);
   if (!Array.isArray(state.subtareasTemp)) state.subtareasTemp = [];
 
@@ -2800,6 +2862,11 @@ function renderModalEvento() {
           '</label>' +
         '</div>' +
         '<div class="campo"><label class="campo-label mono">REPETICIÓN</label><select class="field" id="ev-repetir">' + repetOptions + '</select></div>' +
+        '<div class="campo" id="ev-repetir-hasta-wrap" style="' + (repetir === "nunca" ? "display:none" : "") + '">' +
+          '<label class="campo-label mono">REPETIR HASTA (OPCIONAL)</label>' +
+          '<input class="field" type="date" id="ev-repetir-hasta" value="' + repetirHasta + '" min="' + fecha + '" />' +
+          '<div class="cond" style="font-size:11px;color:#5C7184;margin-top:4px">Si lo dejas vacío, se generan 12 repeticiones por defecto.</div>' +
+        '</div>' +
         '<div class="campo"><label class="campo-label mono">CATEGORÍA</label><select class="field" id="ev-categoria">' + catOptions + '</select></div>' +
         '<div class="campo"><label class="campo-label mono">RESPONSABLE</label>' +
           '<div id="resp-wrap">' +
@@ -3110,8 +3177,9 @@ function render() {
       renderTopbar() +
       renderControles() +
       (state.vista === "agenda" ? "" : renderNavTemporal()) +
-      '<div class="view-area">' + (state.vista === "agenda" ? renderVistaAgenda() : state.vista === "semana" ? renderVistaSemana() : renderVistaMes()) + '</div>' +
+      '<div class="view-area" style="padding:10px 18px max(110px, calc(100px + env(safe-area-inset-bottom)))">' + (state.vista === "agenda" ? renderVistaAgenda() : state.vista === "semana" ? renderVistaSemana() : renderVistaMes()) + '</div>' +
       fab +
+      renderBarraAccionesFija() +
       modalHtml +
       confirmHtml;
   }
@@ -3156,6 +3224,14 @@ function bindEvents() {
       state.drawerSeccionesAbierto = false;
       state.modal = "diagnostico";
       render();
+    };
+  }
+
+  const btnDeshacerGlobal = document.getElementById("btn-deshacer");
+  if (btnDeshacerGlobal && puedeDeshacer()) {
+    btnDeshacerGlobal.onclick = function () {
+      state.drawerSeccionesAbierto = false;
+      deshacerUltimoCambio();
     };
   }
 
@@ -3475,6 +3551,14 @@ function bindEvents() {
       };
     }
 
+    const repetirSelect = document.getElementById("ev-repetir");
+    const repetirHastaWrap = document.getElementById("ev-repetir-hasta-wrap");
+    if (repetirSelect && repetirHastaWrap) {
+      repetirSelect.onchange = function () {
+        repetirHastaWrap.style.display = repetirSelect.value === "nunca" ? "none" : "";
+      };
+    }
+
     // Subtareas: agregar, togglear, quitar (manteniendo el resto del formulario
     // intacto, re-renderizando solo lo necesario para no perder lo escrito).
     function refrescarFormularioTrasSubtarea() {
@@ -3489,6 +3573,8 @@ function bindEvents() {
         lugar: (document.getElementById("ev-lugar") || {}).value,
         notas: (document.getElementById("ev-notas") || {}).value,
         interdepartamental: (document.getElementById("ev-interdepartamental") || {}).checked,
+        repetir: (document.getElementById("ev-repetir") || {}).value,
+        repetirHasta: (document.getElementById("ev-repetir-hasta") || {}).value,
       };
       render();
       const ti = document.getElementById("ev-titulo"); if (ti && snapshot.titulo !== undefined) ti.value = snapshot.titulo;
@@ -3499,6 +3585,10 @@ function bindEvents() {
       const lu = document.getElementById("ev-lugar"); if (lu && snapshot.lugar !== undefined) lu.value = snapshot.lugar;
       const no = document.getElementById("ev-notas"); if (no && snapshot.notas !== undefined) no.value = snapshot.notas;
       const idep = document.getElementById("ev-interdepartamental"); if (idep) idep.checked = !!snapshot.interdepartamental;
+      const rep = document.getElementById("ev-repetir"); if (rep && snapshot.repetir) rep.value = snapshot.repetir;
+      const repH = document.getElementById("ev-repetir-hasta"); if (repH && snapshot.repetirHasta) repH.value = snapshot.repetirHasta;
+      const repHWrap = document.getElementById("ev-repetir-hasta-wrap");
+      if (repHWrap) repHWrap.style.display = (snapshot.repetir === "nunca" || !snapshot.repetir) ? "none" : "";
     }
 
     const btnAddSubtarea = document.getElementById("btn-add-subtarea");
@@ -3585,6 +3675,8 @@ function bindEvents() {
         const hora = document.getElementById("ev-hora").value;
         const horaFin = document.getElementById("ev-hora-fin").value;
         const repetir = document.getElementById("ev-repetir").value;
+        const repetirHastaInput = document.getElementById("ev-repetir-hasta");
+        const repetirHasta = (repetirHastaInput && repetirHastaInput.value) ? repetirHastaInput.value : "";
         const categoria = document.getElementById("ev-categoria").value;
         const respLibre = document.getElementById("ev-responsable-libre");
         const respSelect = document.getElementById("ev-responsable");
@@ -3600,6 +3692,7 @@ function bindEvents() {
         if (!titulo.trim()) { errorBox.innerHTML = '<div class="error-text cond">El título es obligatorio.</div>'; return; }
         if (!fecha) { errorBox.innerHTML = '<div class="error-text cond">La fecha es obligatoria.</div>'; return; }
         if (fechaFin < fecha) { errorBox.innerHTML = '<div class="error-text cond">La fecha de término no puede ser anterior a la fecha de inicio.</div>'; return; }
+        if (repetir !== "nunca" && repetirHasta && repetirHasta < fecha) { errorBox.innerHTML = '<div class="error-text cond">La fecha de la última repetición no puede ser anterior a la fecha de inicio.</div>'; return; }
 
         // Duración derivada de hora inicio/término (si término es menor, se asume que cruza a la madrugada del día siguiente).
         const minIni = (function () { const p = hora.split(":"); return parseInt(p[0]) * 60 + parseInt(p[1]); })();
@@ -3610,7 +3703,8 @@ function bindEvents() {
 
         guardarEvento({
           titulo: titulo.trim(), fecha: fecha, fechaFin: fechaFin, hora: hora, duracion: duracion,
-          repetir: repetir, categoria: categoria, responsable: (responsable || "").trim(), prioridad: prioridad || "media",
+          repetir: repetir, repetirHasta: repetir !== "nunca" ? repetirHasta : "",
+          categoria: categoria, responsable: (responsable || "").trim(), prioridad: prioridad || "media",
           lugar: lugar.trim(), notas: notas.trim(), subtareas: state.subtareasTemp.slice(),
           interdepartamental: interdepartamental,
           completado: (state.eventoEditando && state.eventoEditando.completado) || false,
