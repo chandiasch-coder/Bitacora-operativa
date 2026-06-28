@@ -1,6 +1,6 @@
 {
-  "name": "Bitácora Operativa",
-  "short_name": "Bitácora",
+  "name": "Planificador de Operaciones",
+  "short_name": "Planificador",
   "start_url": "./index.html",
   "display": "standalone",
   "background_color": "#0B1B2B",
