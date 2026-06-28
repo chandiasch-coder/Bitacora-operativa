@@ -224,10 +224,14 @@
   .month-dow { display: grid; grid-template-columns: repeat(7, minmax(124px, 1fr)); gap: 6px; min-width: 880px; }
   .dow-label { text-align: center; font-size: 12px; color: #5C7184; padding: 4px 0; letter-spacing: 1px; }
   .month-cell { min-height: 132px; min-width: 0; max-width: 100%; border-radius: 8px; padding: 7px 8px; cursor: pointer; border: 1px solid #1E3247; background: #0E2235; display: flex; flex-direction: column; gap: 4px; overflow: hidden; }
-  .month-cell.today { background: #102A40; border-color: #D99A3D; }
+  .month-cell.today { background: #16314A; border: 2px solid #D99A3D; box-shadow: 0 0 0 1px #D99A3D, 0 4px 14px rgba(217,154,61,0.25); }
   .month-cell.outside { opacity: 0.45; background: #0A1622; }
   .month-cell-num { font-size: 13px; font-weight: 500; color: #8AA0B5; text-align: right; }
-  .month-cell-num.today { font-weight: 700; color: #D99A3D; }
+  .month-cell-num.today {
+    font-weight: 700; color: #0B1B2B; background: #D99A3D; border-radius: 50%;
+    width: 22px; height: 22px; display: flex; align-items: center; justify-content: center;
+    margin-left: auto; font-size: 13px;
+  }
   .month-evt { font-size: 12px; line-height: 1.35; color: #C9D2DA; padding: 3px 5px 3px 7px; border-radius: 3px; white-space: normal; overflow-wrap: break-word; border-left: 5px solid; }
   .month-evt.done { text-decoration: line-through; opacity: 0.55; }
   .month-more { font-size: 10.5px; color: #5C7184; font-family: ui-monospace, monospace; padding-top: 1px; }
@@ -298,6 +302,7 @@ const ICONS = {
   chevronDown: '<polyline points="6 9 12 15 18 9"/>',
   menu: '<line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/>',
   filter: '<polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/>',
+  megaphone: '<path d="m3 11 18-5v12L3 14v-3z"/><path d="M11.6 16.8a3 3 0 1 1-5.8-1.6"/>',
   trash: '<polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/>',
   edit: '<path d="M17 3a2.85 2.85 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/>',
   tag: '<path d="M20.59 13.41 13 21l-9-9V3h9z"/><circle cx="7" cy="7" r="1.2" fill="currentColor"/>',
@@ -516,8 +521,11 @@ const state = {
   eliminarBuquePendienteId: null,
   eliminarActividadPendienteId: null,
   celdaMoloDetalle: null, // { buqueId, fecha } cuando se abre el detalle de una celda
+  eleccionSerie: null, // { eventoId, accion: 'editar'|'toggle' } cuando se pregunta esta-ocurrencia-vs-serie
+  editarSerieCompleta: null, // repetSerieId cuando se está editando toda la serie
   diasColapsados: {},
   ocultarCompletadasCalendario: true,
+  soloInterdepartamental: false,
   filtroCategorias: [], // array de ids; vacío = todas
   filtroResponsables: [], // array de nombres; vacío = todos
   dropdownFiltroAbierto: null, // 'categoria' | 'responsable' | null
@@ -622,6 +630,9 @@ function eventosVisibles() {
   if (state.filtroResponsables && state.filtroResponsables.length) {
     base = base.filter(function (e) { return state.filtroResponsables.indexOf(e.responsable || "") !== -1; });
   }
+  if (state.soloInterdepartamental) {
+    base = base.filter(function (e) { return !!e.interdepartamental; });
+  }
   if (state.busqueda && state.busqueda.trim()) {
     const q = state.busqueda.trim().toLowerCase();
     base = base.filter(function (e) {
@@ -680,6 +691,7 @@ function abrirEditar(ev) {
 function cerrarModal() {
   state.modal = null;
   state.subtareasTemp = [];
+  state.editarSerieCompleta = null;
   render();
 }
 const REPETICION_HORIZONTE = 12; // número de ocurrencias futuras a generar
@@ -697,9 +709,25 @@ function sumarRepeticion(fechaISO, tipo) {
 
 function guardarEvento(data) {
   if (state.eventoEditando) {
-    state.eventos = state.eventos.map(function (e) {
-      return e.id === state.eventoEditando.id ? Object.assign({}, e, data) : e;
-    });
+    if (state.editarSerieCompleta) {
+      // Editar toda la serie: se replican los campos de CONTENIDO (no la fecha
+      // individual de cada ocurrencia, ni su estado de completado) a todos los
+      // eventos que comparten el mismo repetSerieId.
+      const serieId = state.editarSerieCompleta;
+      const camposContenido = {
+        titulo: data.titulo, hora: data.hora, duracion: data.duracion,
+        categoria: data.categoria, responsable: data.responsable, prioridad: data.prioridad,
+        lugar: data.lugar, notas: data.notas, interdepartamental: data.interdepartamental,
+      };
+      state.eventos = state.eventos.map(function (e) {
+        return e.repetSerieId === serieId ? Object.assign({}, e, camposContenido) : e;
+      });
+      state.editarSerieCompleta = null;
+    } else {
+      state.eventos = state.eventos.map(function (e) {
+        return e.id === state.eventoEditando.id ? Object.assign({}, e, data) : e;
+      });
+    }
   } else {
     const serieId = (data.repetir && data.repetir !== "nunca") ? uid() : null;
     const primero = Object.assign({ id: uid() }, data, serieId ? { repetSerieId: serieId } : {});
@@ -753,6 +781,64 @@ function toggleEstado(id) {
   persist();
   render();
 }
+
+// Si el evento pertenece a una serie de repetición, pregunta si la acción aplica
+// solo a esta ocurrencia o a toda la serie, antes de proceder.
+function iniciarToggle(id) {
+  const ev = state.eventos.find(function (e) { return e.id === id; });
+  if (ev && ev.repetSerieId) {
+    state.eleccionSerie = { eventoId: id, accion: "toggle" };
+    render();
+  } else {
+    toggleEstado(id);
+  }
+}
+function iniciarEditar(id) {
+  const ev = state.eventos.find(function (e) { return e.id === id; });
+  if (!ev) return;
+  if (ev.repetSerieId) {
+    state.eleccionSerie = { eventoId: id, accion: "editar" };
+    render();
+  } else {
+    abrirEditar(ev);
+  }
+}
+function resolverEleccionSerie(alcance) {
+  const eleccion = state.eleccionSerie;
+  if (!eleccion) return;
+  const ev = state.eventos.find(function (e) { return e.id === eleccion.eventoId; });
+  state.eleccionSerie = null;
+  if (!ev) { render(); return; }
+
+  if (eleccion.accion === "toggle") {
+    if (alcance === "ocurrencia") {
+      toggleEstado(ev.id);
+    } else {
+      const nuevoEstado = !ev.completado;
+      state.eventos = state.eventos.map(function (e) {
+        return e.repetSerieId === ev.repetSerieId ? Object.assign({}, e, { completado: nuevoEstado }) : e;
+      });
+      persist();
+      render();
+    }
+  } else if (eleccion.accion === "editar") {
+    if (alcance === "ocurrencia") {
+      abrirEditar(ev);
+    } else {
+      // Editar toda la serie: se abre el formulario sobre esta ocurrencia, pero al
+      // guardar se replican los cambios de contenido (no de fecha) a toda la serie.
+      state.editarSerieCompleta = ev.repetSerieId;
+      abrirEditar(ev);
+    }
+  } else {
+    render();
+  }
+}
+function cancelarEleccionSerie() {
+  state.eleccionSerie = null;
+  render();
+}
+
 function moverASiguienteDia(id) {
   state.eventos = state.eventos.map(function (e) {
     if (e.id !== id) return e;
@@ -2289,6 +2375,11 @@ function renderControles() {
           (completadosCount ? '<span class="mono" style="position:absolute;top:-5px;right:-5px;background:#5FE3A1;color:#0B1B2B;border-radius:8px;padding:0px 4px;font-size:9.5px;font-weight:700;line-height:1.4">' + completadosCount + '</span>' : '') +
         '</button>' +
       '</div>' +
+      '<div class="controls-fila">' +
+        '<button id="btn-toggle-interdepartamental" style="width:100%;display:flex;align-items:center;justify-content:center;gap:6px;padding:9px;border-radius:7px;border:1px solid ' + (state.soloInterdepartamental ? "#D99A3D" : "#2A3F54") + ';background:' + (state.soloInterdepartamental ? "rgba(217,154,61,0.12)" : "transparent") + ';color:' + (state.soloInterdepartamental ? "#D99A3D" : "#8AA0B5") + ';font-size:13px;font-weight:600;cursor:pointer">' +
+          icon("megaphone", 15) + ' Solo interdepartamentales' +
+        '</button>' +
+      '</div>' +
     '</div>' +
     (state.panelFiltrosAbierto ? renderPanelFiltros() : "")
   );
@@ -2427,6 +2518,7 @@ function renderFilaEvento(ev, vencido) {
           (vencido ? '<span class="meta-vencido mono">VENCIDO</span>' : "") +
           (esMultiDia ? '<span class="mono" style="font-size:10px;color:' + color + ';font-weight:600">' + icon("skip", 9) + ' ' + rangoLabel + '</span>' : "") +
           (ev.repetSerieId ? '<span class="mono" style="font-size:10px;color:#8AA0B5">↻</span>' : "") +
+          (ev.interdepartamental ? '<span class="mono" style="font-size:10px;color:#D99A3D;font-weight:700">' + icon("megaphone", 10) + ' INTERDEPTO.</span>' : "") +
           (Array.isArray(ev.subtareas) && ev.subtareas.length ? '<span class="mono" style="font-size:10px;color:#8AA0B5">' + icon("list", 9) + ' ' + ev.subtareas.filter(function(s){return s.hecho;}).length + '/' + ev.subtareas.length + '</span>' : "") +
           (ev.responsable ? '<span class="meta-resp cond">' + icon("user", 10) + ' ' + escapeHTML(ev.responsable) + '</span>' : "") +
           (prio ? '<span class="meta-prio cond" style="color:' + prio.color + '">' + prio.label + '</span>' : "") +
@@ -2605,8 +2697,7 @@ function renderModalEvento() {
   const fechaFin = (ev && ev.fechaFin) || fecha;
   const hora = (ev && ev.hora) || "08:00";
   const duracionTotal = (ev && ev.duracion) || 30;
-  const durHoras = Math.floor(duracionTotal / 60);
-  const durMinutos = duracionTotal % 60;
+  const horaTerminoCalc = calcularHoraTermino(hora, duracionTotal).split(" ")[0]; // sin el "(+1d)" si cruza medianoche
   const categoria = (ev && ev.categoria) || (state.categorias[0] || {}).id || "";
   const responsable = (ev && ev.responsable) || "";
   const responsableEsLibre = responsable && state.responsables.indexOf(responsable) === -1;
@@ -2615,6 +2706,7 @@ function renderModalEvento() {
   const notas = (ev && ev.notas) || "";
   const titulo = (ev && ev.titulo) || "";
   const repetir = (ev && ev.repetir) || "nunca";
+  const interdepartamental = !!(ev && ev.interdepartamental);
   if (!Array.isArray(state.subtareasTemp)) state.subtareasTemp = [];
 
   const catOptions = state.categorias.map(function (c) {
@@ -2628,14 +2720,6 @@ function renderModalEvento() {
   const prioButtons = PRIORIDADES.map(function (p) {
     const active = prioridad === p.id;
     return '<button class="prio-btn cond" data-prio="' + p.id + '" style="border:1.5px solid ' + p.color + ';background:' + (active ? p.color : "transparent") + ';color:' + (active ? "#0B1B2B" : p.color) + '">' + p.label + '</button>';
-  }).join("");
-
-  const horasOptions = [];
-  for (let h = 0; h <= 12; h++) {
-    horasOptions.push('<option value="' + h + '"' + (durHoras === h ? " selected" : "") + '>' + h + '</option>');
-  }
-  const minutosOptions = [0, 15, 30, 45].map(function (m) {
-    return '<option value="' + m + '"' + (durMinutos === m ? " selected" : "") + '>' + pad(m) + '</option>';
   }).join("");
 
   const REPETICION_OPTS = [
@@ -2652,7 +2736,7 @@ function renderModalEvento() {
     '<div class="overlay" id="overlay-evento">' +
       '<div class="modal">' +
         '<div class="modal-head">' +
-          '<div class="modal-title mono">' + (ev ? "EDITAR EVENTO" : "NUEVO EVENTO") + '</div>' +
+          '<div class="modal-title mono">' + (ev ? "EDITAR EVENTO" : "NUEVO EVENTO") + (state.editarSerieCompleta ? ' <span style="color:#D99A3D">· TODA LA SERIE ↻</span>' : '') + '</div>' +
           '<button class="iconbtn" data-action="cerrar-modal">' + icon("x", 16) + '</button>' +
         '</div>' +
         '<div class="campo"><label class="campo-label mono">TÍTULO</label>' +
@@ -2662,11 +2746,14 @@ function renderModalEvento() {
           '<div class="campo" style="flex:1"><label class="campo-label mono">FECHA TÉRMINO</label><input class="field" type="date" id="ev-fecha-fin" value="' + fechaFin + '" min="' + fecha + '" /></div>' +
         '</div>' +
         '<div class="row-gap">' +
-          '<div class="campo" style="flex:1"><label class="campo-label mono">HORA INICIO</label><input class="field" type="time" id="ev-hora" value="' + hora + '" />' +
-            '<div class="mono" id="ev-hora-termino" style="font-size:10.5px;color:#8AA0B5;margin-top:4px">Término: ' + calcularHoraTermino(hora, duracionTotal) + '</div>' +
-          '</div>' +
-          '<div class="campo" style="width:78px"><label class="campo-label mono">HORAS</label><select class="field" id="ev-dur-horas">' + horasOptions.join("") + '</select></div>' +
-          '<div class="campo" style="width:78px"><label class="campo-label mono">MINUTOS</label><select class="field" id="ev-dur-minutos">' + minutosOptions + '</select></div>' +
+          '<div class="campo" style="flex:1"><label class="campo-label mono">HORA INICIO</label><input class="field" type="time" id="ev-hora" value="' + hora + '" /></div>' +
+          '<div class="campo" style="flex:1"><label class="campo-label mono">HORA TÉRMINO</label><input class="field" type="time" id="ev-hora-fin" value="' + horaTerminoCalc + '" /></div>' +
+        '</div>' +
+        '<div class="campo">' +
+          '<label class="filtro-dropdown-item" style="border:1px solid #2A3F54;border-radius:7px;padding:10px;background:#0B1B2B">' +
+            '<input type="checkbox" id="ev-interdepartamental"' + (interdepartamental ? " checked" : "") + ' />' +
+            '<span class="cond" style="font-size:13px;color:#E4EAEF;line-height:1.35">¿Lo deben saber todos? ¿Tiene alcances más allá de mi departamento?</span>' +
+          '</label>' +
         '</div>' +
         '<div class="campo"><label class="campo-label mono">REPETICIÓN</label><select class="field" id="ev-repetir">' + repetOptions + '</select></div>' +
         '<div class="campo"><label class="campo-label mono">CATEGORÍA</label><select class="field" id="ev-categoria">' + catOptions + '</select></div>' +
@@ -2894,6 +2981,31 @@ function renderModalDiagnostico() {
 }
 
 
+function renderModalEleccionSerie() {
+  const eleccion = state.eleccionSerie;
+  const ev = eleccion ? state.eventos.find(function (e) { return e.id === eleccion.eventoId; }) : null;
+  const verbo = eleccion && eleccion.accion === "toggle"
+    ? (ev && ev.completado ? "reactivar" : "marcar como lista")
+    : "editar";
+  return (
+    '<div class="overlay" id="overlay-eleccion-serie">' +
+      '<div class="modal" style="max-width:380px">' +
+        '<div class="modal-head">' +
+          '<div class="modal-title mono">EVENTO REPETIDO ↻</div>' +
+          '<button class="iconbtn" id="btn-cancelar-eleccion-serie">' + icon("x", 16) + '</button>' +
+        '</div>' +
+        '<div class="cond" style="font-size:14px;color:#C9D2DA;line-height:1.5;margin-bottom:18px">' +
+          'Este evento forma parte de una serie que se repite. ¿Quieres ' + verbo + ' solo esta ocurrencia, o toda la serie?' +
+        '</div>' +
+        '<div style="display:flex;flex-direction:column;gap:8px">' +
+          '<button class="cond" id="btn-eleccion-ocurrencia" style="width:100%;padding:11px;border-radius:7px;border:1px solid #2A3F54;background:transparent;color:#C9D2DA;font-weight:600;font-size:13.5px;cursor:pointer">Solo esta ocurrencia</button>' +
+          '<button class="cond" id="btn-eleccion-toda-serie" style="width:100%;padding:11px;border-radius:7px;border:none;background:#D99A3D;color:#0B1B2B;font-weight:700;font-size:13.5px;cursor:pointer">Toda la serie</button>' +
+        '</div>' +
+      '</div>' +
+    '</div>'
+  );
+}
+
 function renderModalConfirmarEliminar() {
   const ev = state.eventos.find(function (e) { return e.id === state.eliminarPendienteId; });
   const titulo = ev ? ev.titulo : "este evento";
@@ -2963,6 +3075,7 @@ function render() {
   // El modal de diagnóstico (botón "Offline") vive en el drawer lateral, accesible
   // desde cualquier sección, así que se agrega siempre al final, fuera del switch.
   if (state.modal === "diagnostico") html += renderModalDiagnostico();
+  if (state.eleccionSerie) html += renderModalEleccionSerie();
 
   document.getElementById("app").innerHTML = html;
   bindEvents();
@@ -3000,6 +3113,20 @@ function bindEvents() {
       state.modal = "diagnostico";
       render();
     };
+  }
+
+  // Modal de elección "esta ocurrencia / toda la serie" — global, ya que el
+  // calendario es la única sección donde puede dispararse, pero lo dejamos
+  // accesible sin importar el switch de secciones por consistencia.
+  if (state.eleccionSerie) {
+    const btnCancelarEleccion = document.getElementById("btn-cancelar-eleccion-serie");
+    if (btnCancelarEleccion) btnCancelarEleccion.onclick = cancelarEleccionSerie;
+    const overlayEleccion = document.getElementById("overlay-eleccion-serie");
+    if (overlayEleccion) overlayEleccion.onclick = function (e) { if (e.target === overlayEleccion) cancelarEleccionSerie(); };
+    const btnOcurrencia = document.getElementById("btn-eleccion-ocurrencia");
+    if (btnOcurrencia) btnOcurrencia.onclick = function () { resolverEleccionSerie("ocurrencia"); };
+    const btnTodaSerie = document.getElementById("btn-eleccion-toda-serie");
+    if (btnTodaSerie) btnTodaSerie.onclick = function () { resolverEleccionSerie("serie"); };
   }
 
   /* ---------- Modal diagnóstico (modo sin internet) ---------- */
@@ -3191,6 +3318,9 @@ function bindEvents() {
   const btnToggleOcultarCal = document.getElementById("btn-toggle-ocultar-completadas-cal");
   if (btnToggleOcultarCal) btnToggleOcultarCal.onclick = function () { state.ocultarCompletadasCalendario = !state.ocultarCompletadasCalendario; render(); };
 
+  const btnToggleInterdep = document.getElementById("btn-toggle-interdepartamental");
+  if (btnToggleInterdep) btnToggleInterdep.onclick = function () { state.soloInterdepartamental = !state.soloInterdepartamental; render(); };
+
   const campoBusqueda = document.getElementById("campo-busqueda");
   if (campoBusqueda) {
     campoBusqueda.oninput = function (e) {
@@ -3240,21 +3370,15 @@ function bindEvents() {
     const id = el.getAttribute("data-id");
     const fecha = el.getAttribute("data-fecha");
 
-    if (action === "toggle") el.onclick = function (e) { e.stopPropagation(); toggleEstado(id); };
+    if (action === "toggle") el.onclick = function (e) { e.stopPropagation(); iniciarToggle(id); };
     else if (action === "manana") el.onclick = function (e) { e.stopPropagation(); moverASiguienteDia(id); };
     else if (action === "export") el.onclick = function (e) {
       e.stopPropagation();
       const ev = state.eventos.find(function (e) { return e.id === id; });
       if (ev) downloadICS(ev);
     };
-    else if (action === "editar") el.onclick = function () {
-      const ev = state.eventos.find(function (e) { return e.id === id; });
-      if (ev) abrirEditar(ev);
-    };
-    else if (action === "editar-fila") el.onclick = function () {
-      const ev = state.eventos.find(function (e) { return e.id === id; });
-      if (ev) abrirEditar(ev);
-    };
+    else if (action === "editar") el.onclick = function () { iniciarEditar(id); };
+    else if (action === "editar-fila") el.onclick = function () { iniciarEditar(id); };
     else if (action === "eliminar") el.onclick = function (e) { e.stopPropagation(); pedirConfirmacionEliminar(id); };
     else if (action === "export-dia") el.onclick = function (e) {
       e.stopPropagation();
@@ -3307,20 +3431,6 @@ function bindEvents() {
       };
     }
 
-    // Recalcular y mostrar la hora de término en vivo al cambiar hora inicio o duración
-    const horaInput = document.getElementById("ev-hora");
-    const horasSel = document.getElementById("ev-dur-horas");
-    const minutosSel = document.getElementById("ev-dur-minutos");
-    const terminoLabel = document.getElementById("ev-hora-termino");
-    function actualizarHoraTermino() {
-      if (!horaInput || !horasSel || !minutosSel || !terminoLabel) return;
-      const durMin = (Number(horasSel.value) || 0) * 60 + (Number(minutosSel.value) || 0);
-      terminoLabel.textContent = "Término: " + calcularHoraTermino(horaInput.value, durMin);
-    }
-    if (horaInput) horaInput.onchange = actualizarHoraTermino;
-    if (horasSel) horasSel.onchange = actualizarHoraTermino;
-    if (minutosSel) minutosSel.onchange = actualizarHoraTermino;
-
     // Subtareas: agregar, togglear, quitar (manteniendo el resto del formulario
     // intacto, re-renderizando solo lo necesario para no perder lo escrito).
     function refrescarFormularioTrasSubtarea() {
@@ -3331,16 +3441,20 @@ function bindEvents() {
         fecha: (document.getElementById("ev-fecha") || {}).value,
         fechaFin: (document.getElementById("ev-fecha-fin") || {}).value,
         hora: (document.getElementById("ev-hora") || {}).value,
+        horaFin: (document.getElementById("ev-hora-fin") || {}).value,
         lugar: (document.getElementById("ev-lugar") || {}).value,
         notas: (document.getElementById("ev-notas") || {}).value,
+        interdepartamental: (document.getElementById("ev-interdepartamental") || {}).checked,
       };
       render();
       const ti = document.getElementById("ev-titulo"); if (ti && snapshot.titulo !== undefined) ti.value = snapshot.titulo;
       const fi = document.getElementById("ev-fecha"); if (fi && snapshot.fecha) fi.value = snapshot.fecha;
       const ff = document.getElementById("ev-fecha-fin"); if (ff && snapshot.fechaFin) ff.value = snapshot.fechaFin;
       const hi = document.getElementById("ev-hora"); if (hi && snapshot.hora) hi.value = snapshot.hora;
+      const hf = document.getElementById("ev-hora-fin"); if (hf && snapshot.horaFin) hf.value = snapshot.horaFin;
       const lu = document.getElementById("ev-lugar"); if (lu && snapshot.lugar !== undefined) lu.value = snapshot.lugar;
       const no = document.getElementById("ev-notas"); if (no && snapshot.notas !== undefined) no.value = snapshot.notas;
+      const idep = document.getElementById("ev-interdepartamental"); if (idep) idep.checked = !!snapshot.interdepartamental;
     }
 
     const btnAddSubtarea = document.getElementById("btn-add-subtarea");
@@ -3425,9 +3539,7 @@ function bindEvents() {
         const fecha = document.getElementById("ev-fecha").value;
         let fechaFin = document.getElementById("ev-fecha-fin").value || fecha;
         const hora = document.getElementById("ev-hora").value;
-        const durHoras = Number(document.getElementById("ev-dur-horas").value) || 0;
-        const durMinutos = Number(document.getElementById("ev-dur-minutos").value) || 0;
-        const duracion = durHoras * 60 + durMinutos;
+        const horaFin = document.getElementById("ev-hora-fin").value;
         const repetir = document.getElementById("ev-repetir").value;
         const categoria = document.getElementById("ev-categoria").value;
         const respLibre = document.getElementById("ev-responsable-libre");
@@ -3435,6 +3547,7 @@ function bindEvents() {
         const responsable = respLibre ? respLibre.value : (respSelect ? respSelect.value : "");
         const lugar = document.getElementById("ev-lugar").value;
         const notas = document.getElementById("ev-notas").value;
+        const interdepartamental = !!(document.getElementById("ev-interdepartamental") || {}).checked;
         const prioridad = (document.getElementById("prio-row") || {}).dataset
           ? document.getElementById("prio-row").dataset.value
           : "media";
@@ -3443,12 +3556,19 @@ function bindEvents() {
         if (!titulo.trim()) { errorBox.innerHTML = '<div class="error-text cond">El título es obligatorio.</div>'; return; }
         if (!fecha) { errorBox.innerHTML = '<div class="error-text cond">La fecha es obligatoria.</div>'; return; }
         if (fechaFin < fecha) { errorBox.innerHTML = '<div class="error-text cond">La fecha de término no puede ser anterior a la fecha de inicio.</div>'; return; }
-        if (duracion <= 0) { errorBox.innerHTML = '<div class="error-text cond">La duración debe ser mayor a 0.</div>'; return; }
+
+        // Duración derivada de hora inicio/término (si término es menor, se asume que cruza a la madrugada del día siguiente).
+        const minIni = (function () { const p = hora.split(":"); return parseInt(p[0]) * 60 + parseInt(p[1]); })();
+        const minFin = (function () { const p = horaFin.split(":"); return parseInt(p[0]) * 60 + parseInt(p[1]); })();
+        let duracion = minFin - minIni;
+        if (duracion <= 0) duracion += 1440;
+        if (duracion <= 0) { errorBox.innerHTML = '<div class="error-text cond">La hora de término debe ser distinta a la de inicio.</div>'; return; }
 
         guardarEvento({
           titulo: titulo.trim(), fecha: fecha, fechaFin: fechaFin, hora: hora, duracion: duracion,
           repetir: repetir, categoria: categoria, responsable: (responsable || "").trim(), prioridad: prioridad || "media",
           lugar: lugar.trim(), notas: notas.trim(), subtareas: state.subtareasTemp.slice(),
+          interdepartamental: interdepartamental,
           completado: (state.eventoEditando && state.eventoEditando.completado) || false,
         });
       };
