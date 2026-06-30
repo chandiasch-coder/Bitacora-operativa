@@ -197,6 +197,8 @@
   .daycard { background: #0E2235; border: 1px solid #1E3247; border-radius: 10px; overflow: hidden; margin-bottom: 10px; border-top: 3px solid #1E3247; }
   .daycard.alt { background: #0C1F30; }
   .daycard.today { background: #102A40; border-color: #D99A3D; border-top-color: #D99A3D; }
+  .daycard.dia-especial { background: #160E29; }
+  .daycard.dia-especial.alt { background: #14102A; }
   .daycard-head { display: flex; align-items: center; justify-content: space-between; padding: 9px 14px; border-bottom: 1px solid #1E3247; }
   .daycard-head.empty { border-bottom: none; }
   .badge-hoy { font-size: 10px; background: #D99A3D; color: #0B1B2B; padding: 1px 6px; border-radius: 4px; font-weight: 700; }
@@ -232,6 +234,8 @@
   .month-cell { min-height: 132px; min-width: 0; max-width: 100%; border-radius: 8px; padding: 7px 8px; cursor: pointer; border: 1px solid #1E3247; background: #0E2235; display: flex; flex-direction: column; gap: 4px; overflow: hidden; }
   .month-cell.today { background: #16314A; border: 2px solid #D99A3D; box-shadow: 0 0 0 1px #D99A3D, 0 4px 14px rgba(217,154,61,0.25); }
   .month-cell.outside { opacity: 0.45; background: #0A1622; }
+  .month-cell.dia-especial { background: #160E29; }
+  .month-cell.dia-especial.outside { background: #120D1F; }
   .month-cell-num { font-size: 13px; font-weight: 500; color: #8AA0B5; text-align: right; }
   .month-cell-num.today {
     font-weight: 700; color: #0B1B2B; background: #D99A3D; border-radius: 50%;
@@ -347,6 +351,52 @@ function fmtDTG(d) {
 }
 const MESES = ["ENERO","FEBRERO","MARZO","ABRIL","MAYO","JUNIO","JULIO","AGOSTO","SEPTIEMBRE","OCTUBRE","NOVIEMBRE","DICIEMBRE"];
 const MESES_ABR = ["ENE","FEB","MAR","ABR","MAY","JUN","JUL","AGO","SEP","OCT","NOV","DIC"];
+const DIAS_SEM_LARGO = ["domingo","lunes","martes","miércoles","jueves","viernes","sábado"];
+
+// Feriados nacionales de Chile por año (formato MM-DD). Los feriados fijos (mismo
+// día/mes cada año) se repiten en cada año; los móviles (Semana Santa, San Pedro y
+// San Pablo, etc.) deben confirmarse y agregarse año a año cuando el Gobierno los
+// fija oficialmente. Se excluyen feriados regionales (solo aplican a comunas
+// específicas, no a nivel nacional).
+const FERIADOS_CHILE = {
+  2025: {
+    "01-01": "Año Nuevo", "04-18": "Viernes Santo", "04-19": "Sábado Santo",
+    "05-01": "Día del Trabajo", "05-21": "Glorias Navales", "06-29": "San Pedro y San Pablo",
+    "07-16": "Virgen del Carmen", "08-15": "Asunción de la Virgen",
+    "09-18": "Independencia Nacional", "09-19": "Glorias del Ejército",
+    "10-12": "Encuentro de Dos Mundos", "10-31": "Iglesias Evangélicas",
+    "11-01": "Todos los Santos", "11-16": "Elección Presidencial 1ª vuelta",
+    "12-08": "Inmaculada Concepción", "12-14": "Elección Presidencial 2ª vuelta", "12-25": "Navidad",
+  },
+  2026: {
+    "01-01": "Año Nuevo", "04-03": "Viernes Santo", "04-04": "Sábado Santo",
+    "05-01": "Día del Trabajo", "05-21": "Glorias Navales",
+    "06-21": "Día Nacional de los Pueblos Indígenas", "06-29": "San Pedro y San Pablo",
+    "07-16": "Virgen del Carmen", "08-15": "Asunción de la Virgen",
+    "09-18": "Independencia Nacional", "09-19": "Glorias del Ejército",
+    "10-12": "Encuentro de Dos Mundos", "10-31": "Iglesias Evangélicas",
+    "11-01": "Todos los Santos", "12-08": "Inmaculada Concepción", "12-25": "Navidad",
+  },
+};
+function feriadoEnFecha(fechaIso) {
+  // fechaIso: "YYYY-MM-DD"
+  const anio = parseInt(fechaIso.slice(0, 4), 10);
+  const mesDia = fechaIso.slice(5);
+  const tabla = FERIADOS_CHILE[anio];
+  return tabla ? (tabla[mesDia] || null) : null;
+}
+function esFinDeSemanaISO(fechaIso) {
+  const d = new Date(fechaIso + "T00:00:00");
+  const dow = d.getDay();
+  return dow === 0 || dow === 6;
+}
+function esDiaEspecial(fechaIso) {
+  return !!feriadoEnFecha(fechaIso) || esFinDeSemanaISO(fechaIso);
+}
+
+function fmtFechaLarga(d) {
+  return DIAS_SEM_LARGO[d.getDay()] + " " + d.getDate() + " de " + MESES[d.getMonth()].toLowerCase() + " de " + d.getFullYear();
+}
 const DIAS_SEM = ["LUN","MAR","MIE","JUE","VIE","SAB","DOM"];
 const DIAS_SEM_FULL = ["LUNES","MARTES","MIERCOLES","JUEVES","VIERNES","SABADO","DOMINGO"];
 
@@ -858,18 +908,35 @@ function todoElRangoCompletado(ev) {
 // alterna el campo "completado" simple. Para eventos multi-día, se alterna SOLO
 // el día indicado dentro de completadoFechas, sin afectar el resto del rango.
 function toggleEstado(id, fechaIso) {
+  const ahoraISO = new Date().toISOString();
   state.eventos = state.eventos.map(function (e) {
     if (e.id !== id) return e;
     if (esMultiDiaEvento(e) && fechaIso) {
       const actuales = Array.isArray(e.completadoFechas) ? e.completadoFechas.slice() : [];
+      const timestamps = Object.assign({}, e.completadoFechasTimestamp || {});
       const idx = actuales.indexOf(fechaIso);
-      if (idx === -1) actuales.push(fechaIso); else actuales.splice(idx, 1);
-      return Object.assign({}, e, { completadoFechas: actuales, completado: todoElRangoCompletado(Object.assign({}, e, { completadoFechas: actuales })) });
+      if (idx === -1) { actuales.push(fechaIso); timestamps[fechaIso] = ahoraISO; }
+      else { actuales.splice(idx, 1); delete timestamps[fechaIso]; }
+      return Object.assign({}, e, {
+        completadoFechas: actuales,
+        completadoFechasTimestamp: timestamps,
+        completado: todoElRangoCompletado(Object.assign({}, e, { completadoFechas: actuales })),
+      });
     }
-    return Object.assign({}, e, { completado: !e.completado });
+    const nuevoEstado = !e.completado;
+    return Object.assign({}, e, { completado: nuevoEstado, completadoEn: nuevoEstado ? ahoraISO : null });
   });
   persist();
   render();
+}
+
+// Devuelve el timestamp ISO de cuándo se marcó como completada una fecha específica
+// (o el evento entero, si no es multi-día), o null si no está completada.
+function obtenerTimestampCompletado(ev, fechaIso) {
+  if (esMultiDiaEvento(ev) && fechaIso) {
+    return (ev.completadoFechasTimestamp && ev.completadoFechasTimestamp[fechaIso]) || null;
+  }
+  return ev.completadoEn || null;
 }
 
 // Si el evento pertenece a una serie de repetición, pregunta si la acción aplica
@@ -2371,14 +2438,14 @@ function renderTopbar() {
         '<div class="dot" style="background:' + (vencidos.length ? "#E0524A" : "#5FE3A1") + ';box-shadow:0 0 8px ' + (vencidos.length ? "#E0524A" : "#5FE3A1") + '"></div>' +
         '<div style="text-align:center">' +
           '<div class="topbar-titulo cond">PLANIFICADOR DE OPERACIONES</div>' +
-          '<div class="mono" id="dtg-clock" style="font-size:12px;color:#8AA0B5;font-weight:600;letter-spacing:0.5px;margin-top:2px">' + fmtDTG(new Date()) + '</div>' +
+          '<div class="mono" id="dtg-clock" style="font-size:12px;color:#8AA0B5;font-weight:600;letter-spacing:0.5px;margin-top:2px;text-transform:capitalize">' + fmtFechaLarga(new Date()) + '</div>' +
         '</div>' +
       '</div>' +
     '</div>' +
     '<button id="btn-abrir-drawer" class="barra-secciones-btn">' +
-      icon("menu", 16) +
-      '<span class="cond">' + SECCIONES_LABEL[state.seccion] + '</span>' +
+      icon("menu", 16) + ' Menú' +
     '</button>' +
+    '<div class="cond" style="text-align:center;padding:8px 16px 10px;font-size:12.5px;font-weight:600;color:#8AA0B5;letter-spacing:0.5px;border-bottom:1px solid #1E3247">' + SECCIONES_LABEL[state.seccion] + '</div>' +
     (state.drawerSeccionesAbierto ? renderDrawerSecciones() : "")
   );
 }
@@ -2669,14 +2736,19 @@ function renderVistaAgenda() {
     const esHoy = iso === hoyISO;
     const esManana = iso === fmtISO(addDays(hoy, 1));
     const evs = porFecha[iso];
+    const nombreFeriado = feriadoEnFecha(iso);
+    const esFinde = esFinDeSemanaISO(iso);
     let etiqueta = DIAS_SEM_FULL[(d.getDay() + 6) % 7] + ", " + d.getDate() + " " + MESES[d.getMonth()].toLowerCase();
     if (esHoy) etiqueta = "HOY — " + etiqueta;
     else if (esManana) etiqueta = "MAÑANA — " + etiqueta;
 
     html +=
       '<div>' +
-        '<div class="mono" style="font-size:11.5px;font-weight:700;color:' + (esHoy ? "#D99A3D" : "#8AA0B5") + ';letter-spacing:0.5px;margin-bottom:6px;padding-left:2px">' + etiqueta.toUpperCase() + '</div>' +
-        '<div class="daycard' + (esHoy ? " today" : "") + '" style="border-top:3px solid ' + (esHoy ? "#D99A3D" : "#1E3247") + '">' +
+        '<div class="mono" style="font-size:11.5px;font-weight:700;color:' + (esHoy ? "#D99A3D" : "#8AA0B5") + ';letter-spacing:0.5px;margin-bottom:6px;padding-left:2px;display:flex;align-items:center;gap:8px">' +
+          '<span>' + etiqueta.toUpperCase() + '</span>' +
+          (nombreFeriado ? '<span style="font-size:9.5px;color:#C97FE0;border:1px solid #C97FE0;border-radius:4px;padding:1px 5px" title="' + escapeHTML(nombreFeriado) + '">FERIADO</span>' : (esFinde && !esHoy ? '<span style="font-size:9.5px;color:#5C7184">FIN DE SEMANA</span>' : "")) +
+        '</div>' +
+        '<div class="daycard' + (esHoy ? " today" : (!esHoy && (nombreFeriado || esFinde) ? " dia-especial" : "")) + '" style="border-top:3px solid ' + (esHoy ? "#D99A3D" : "#1E3247") + '">' +
           evs.map(function (ev) { return renderFilaEvento(ev, !estaCompletadoEnFecha(ev, iso) && ev.fecha < hoyISO, iso); }).join("") +
         '</div>' +
       '</div>';
@@ -2702,16 +2774,20 @@ function renderVistaSemana() {
     const evs = porFecha[iso] || [];
     const esHoy = isSameDay(d, hoy);
     const acento = ACENTOS_DIA[i];
+    const nombreFeriado = feriadoEnFecha(iso);
+    const esFinde = esFinDeSemanaISO(iso);
     const claseAlt = (i % 2 === 1 && !esHoy) ? " alt" : "";
+    const claseEspecial = (!esHoy && (nombreFeriado || esFinde)) ? " dia-especial" : "";
     const colapsado = !!state.diasColapsados[iso];
     html +=
-      '<div class="daycard' + (esHoy ? " today" : claseAlt) + '" style="' + (esHoy ? "" : "border-top-color:" + acento) + '">' +
+      '<div class="daycard' + (esHoy ? " today" : claseAlt) + claseEspecial + '" style="' + (esHoy ? "" : "border-top-color:" + acento) + '">' +
         '<div class="daycard-head' + (evs.length && !colapsado ? "" : " empty") + '" data-action="toggle-dia-colapso" data-fecha="' + iso + '" style="cursor:pointer">' +
           '<div style="display:flex;align-items:center;gap:10px">' +
             '<span style="color:#5C7184;display:flex;transition:transform 0.15s;transform:rotate(' + (colapsado ? "-90deg" : "0deg") + ')">' + icon("chevronDown", 14) + '</span>' +
             '<div class="mono" style="font-size:12px;font-weight:700;color:' + (esHoy ? "#D99A3D" : acento) + ';letter-spacing:1px">' + DIAS_SEM[i] + '</div>' +
             '<div class="cond" style="font-size:14px;color:#C9D2DA">' + d.getDate() + ' ' + MESES_ABR[d.getMonth()] + '</div>' +
             (esHoy ? '<span class="badge-hoy mono">HOY</span>' : "") +
+            (nombreFeriado ? '<span class="mono" style="font-size:9.5px;color:#C97FE0;border:1px solid #C97FE0;border-radius:4px;padding:1px 5px" title="' + escapeHTML(nombreFeriado) + '">FERIADO</span>' : (esFinde ? '<span class="mono" style="font-size:9.5px;color:#5C7184">FIN DE SEMANA</span>' : "")) +
             (colapsado && evs.length ? '<span class="mono" style="font-size:11px;color:#5C7184">(' + evs.length + ')</span>' : "") +
           '</div>' +
           '<div style="display:flex;gap:6px">' +
@@ -2750,6 +2826,9 @@ function renderVistaMes() {
     const evs = porFecha[iso] || [];
     const enMes = d.getMonth() === mesActual;
     const esHoy = isSameDay(d, hoy);
+    const nombreFeriado = feriadoEnFecha(iso);
+    const esFinde = esFinDeSemanaISO(iso);
+    const claseEspecial = (!esHoy && (nombreFeriado || esFinde)) ? " dia-especial" : "";
     let evsHtml = evs.slice(0, 4).map(function (ev) {
       const cat = catById(ev.categoria);
       const color = (cat && cat.color) || "#8AA0B5";
@@ -2761,7 +2840,7 @@ function renderVistaMes() {
     if (evs.length > 4) evsHtml += '<div class="month-more">+' + (evs.length - 4) + ' más</div>';
 
     return (
-      '<div class="month-cell' + (esHoy ? " today" : "") + (enMes ? "" : " outside") + '" data-action="dia-click" data-fecha="' + iso + '" data-has-events="' + (evs.length ? "1" : "0") + '">' +
+      '<div class="month-cell' + (esHoy ? " today" : "") + (enMes ? "" : " outside") + claseEspecial + '" data-action="dia-click" data-fecha="' + iso + '" data-has-events="' + (evs.length ? "1" : "0") + '" title="' + (nombreFeriado ? escapeHTML(nombreFeriado) : "") + '">' +
         '<div class="month-cell-num mono' + (esHoy ? " today" : "") + '">' + d.getDate() + '</div>' +
         '<div style="display:flex;flex-direction:column;gap:3px;overflow:hidden;min-width:0">' + evsHtml + '</div>' +
       '</div>'
@@ -2990,6 +3069,13 @@ function renderModalDetalleDia() {
 }
 
 /* ---------- Fila de evento completado (con botón reactivar) ---------- */
+function formatearTimestampCompletado(iso) {
+  if (!iso) return "";
+  const d = new Date(iso);
+  const dias = ["DOM", "LUN", "MAR", "MIE", "JUE", "VIE", "SAB"];
+  return dias[d.getDay()] + " " + pad(d.getDate()) + " " + MESES_ABR[d.getMonth()] + " " + d.getFullYear() + " · " + pad(d.getHours()) + ":" + pad(d.getMinutes());
+}
+
 function renderFilaCompletada(ev) {
   const cat = catById(ev.categoria);
   const color = (cat && cat.color) || "#8AA0B5";
@@ -2998,6 +3084,23 @@ function renderFilaCompletada(ev) {
   const fechaLabel = d.getDate() + " " + MESES_ABR[d.getMonth()] + " " + d.getFullYear();
   const colorLetra = colorTextoLegible(color);
   const letraInicial = inicialCategoria(cat);
+
+  // Registro de cuándo se marcó como completada. Para eventos multi-día con varios
+  // días marcados, se listan todas las fechas con su respectivo momento de marcado.
+  let marcadaHtml = "";
+  if (esMultiDiaEvento(ev) && Array.isArray(ev.completadoFechas) && ev.completadoFechas.length) {
+    const detalle = ev.completadoFechas.slice().sort().map(function (f) {
+      const ts = obtenerTimestampCompletado(ev, f);
+      const df = new Date(f + "T00:00:00");
+      const labelDia = df.getDate() + " " + MESES_ABR[df.getMonth()];
+      return labelDia + (ts ? " (marcada " + formatearTimestampCompletado(ts) + ")" : "");
+    }).join(" · ");
+    marcadaHtml = '<div class="mono" style="font-size:9.5px;color:#5C7184;margin-top:2px">' + icon("checkCircle", 9) + ' ' + detalle + '</div>';
+  } else {
+    const ts = obtenerTimestampCompletado(ev);
+    if (ts) marcadaHtml = '<div class="mono" style="font-size:9.5px;color:#5C7184;margin-top:2px">' + icon("checkCircle", 9) + ' Marcada el ' + formatearTimestampCompletado(ts) + '</div>';
+  }
+
   return (
     '<div class="fila-evento" style="opacity:0.7;padding:0;gap:0">' +
       '<div class="mono" style="align-self:stretch;width:26px;min-width:26px;background:' + color + ';color:' + colorLetra + ';display:flex;align-items:center;justify-content:center;font-weight:700;font-size:14px;border-radius:6px 0 0 6px" title="' + escapeHTML((cat && cat.label) || "") + '">' + letraInicial + '</div>' +
@@ -3010,6 +3113,7 @@ function renderFilaCompletada(ev) {
           (ev.responsable ? '<span class="meta-resp cond">' + icon("user", 10) + ' ' + escapeHTML(ev.responsable) + '</span>' : "") +
           (prio ? '<span class="meta-prio cond" style="color:' + prio.color + '">' + prio.label + '</span>' : "") +
         '</div>' +
+        marcadaHtml +
       '</div>' +
       '<button class="cond" data-action="toggle" data-id="' + ev.id + '" style="display:flex;align-items:center;gap:5px;padding:5px 9px;border-radius:6px;border:1px solid #5FE3A1;background:transparent;color:#5FE3A1;font-size:11.5px;font-weight:600;cursor:pointer;white-space:nowrap;flex-shrink:0">Reactivar</button>' +
       '<div class="acciones" style="opacity:1">' +
@@ -3783,10 +3887,10 @@ function bindRespSelect() {
   }
 }
 
-/* ---------- Reloj en vivo (actualiza solo el texto, sin re-render completo) ---------- */
+/* ---------- Fecha en vivo (actualiza solo el texto, sin re-render completo) ---------- */
 setInterval(function () {
   const clockEl = document.getElementById("dtg-clock");
-  if (clockEl) clockEl.textContent = fmtDTG(new Date());
+  if (clockEl) clockEl.textContent = fmtFechaLarga(new Date());
 }, 30000);
 
 /* ---------- Arranque ---------- */
