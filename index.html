@@ -314,6 +314,7 @@ const ICONS = {
   filter: '<polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/>',
   megaphone: '<path d="m3 11 18-5v12L3 14v-3z"/><path d="M11.6 16.8a3 3 0 1 1-5.8-1.6"/>',
   undo: '<path d="M3 7v6h6"/><path d="M21 17a9 9 0 0 0-15-6.7L3 13"/>',
+  lock: '<rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/>',
   trash: '<polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/>',
   edit: '<path d="M17 3a2.85 2.85 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/>',
   tag: '<path d="M20.59 13.41 13 21l-9-9V3h9z"/><circle cx="7" cy="7" r="1.2" fill="currentColor"/>',
@@ -458,6 +459,7 @@ const HECHOS_KEY = "bitacora:hechos";
 const BUQUES_KEY = "bitacora:buques";
 const ACTIVIDADES_TRAFICO_KEY = "bitacora:actividadesTrafico";
 const ULTIMA_NAV_KEY = "bitacora:ultimaNavegacion"; // preferencia de UI, no se incluye en el respaldo de datos
+const PIN_KEY = "bitacora:pin"; // PIN de acceso, propio de cada dispositivo, NUNCA se incluye en el respaldo de datos
 const DELEG_KEY = "bitacora:delegaciones";
 
 function loadLocal(key, fallback) {
@@ -545,8 +547,17 @@ function downloadICSBatch(eventos, nombre) {
 const ultimaNav = loadLocal(ULTIMA_NAV_KEY, { seccion: "calendario", vista: "semana" });
 const SECCIONES_VALIDAS = ["calendario", "personal", "delegacion", "molo"];
 const VISTAS_VALIDAS = ["agenda", "semana", "mes"];
+const pinGuardado = loadLocal(PIN_KEY, null);
 
 const state = {
+  // Bloqueo por PIN: si ya existe un PIN guardado en este dispositivo, la app
+  // arranca bloqueada y pide ingresarlo. Si no existe ninguno, arranca desbloqueada
+  // (el usuario puede crear uno desde el menú cuando quiera).
+  pantallaBloqueada: !!pinGuardado,
+  pinTemp: "",
+  pinModoCreacion: null, // null | 'crear' | 'confirmar' (durante el flujo de creación)
+  pinPrimerIngreso: "",
+  pinError: "",
   seccion: SECCIONES_VALIDAS.indexOf(ultimaNav.seccion) !== -1 ? ultimaNav.seccion : "calendario",
   vista: VISTAS_VALIDAS.indexOf(ultimaNav.vista) !== -1 ? ultimaNav.vista : "semana",
   cursor: new Date(),
@@ -2456,6 +2467,184 @@ const SECCIONES_LABEL = {
   molo: "Molo — Tráfico Portuario",
 };
 
+/* ============================================================
+   PANTALLA DE BLOQUEO POR PIN
+   ============================================================ */
+function renderPantallaBloqueo() {
+  const modo = state.pinModoCreacion; // null = ingresar PIN existente; 'elegirLongitud' | 'crear' | 'confirmar'
+  if (modo === "elegirLongitud") return renderPantallaElegirLongitudPin();
+
+  const longitudActual = state.pinTemp.length;
+  const longitudObjetivo = state.pinLongitudObjetivo || 4;
+  const dotsTotal = modo ? longitudObjetivo : Math.max(longitudActual, 4);
+  const dots = [];
+  for (let i = 0; i < dotsTotal; i++) {
+    const lleno = i < longitudActual;
+    dots.push('<div style="width:14px;height:14px;border-radius:50%;border:2px solid #D99A3D;background:' + (lleno ? "#D99A3D" : "transparent") + ';transition:background 0.1s"></div>');
+  }
+  const dotsHtml = dots.join("");
+
+  let titulo, subtitulo;
+  if (!modo) {
+    titulo = "Ingresa tu PIN";
+    subtitulo = "Este PIN es propio de este dispositivo.";
+  } else if (modo === "crear") {
+    titulo = "Crea tu PIN";
+    subtitulo = "Ingresa " + longitudObjetivo + " dígitos.";
+  } else {
+    titulo = "Confirma tu PIN";
+    subtitulo = "Ingresa el mismo PIN nuevamente.";
+  }
+
+  const numeros = ["1", "2", "3", "4", "5", "6", "7", "8", "9", "", "0", "⌫"];
+  const tecladoHtml = numeros.map(function (n) {
+    if (n === "") return '<div></div>';
+    if (n === "⌫") {
+      return '<button id="pin-borrar" style="background:transparent;border:none;color:#C9D2DA;font-size:20px;display:flex;align-items:center;justify-content:center;height:64px;cursor:pointer">⌫</button>';
+    }
+    return '<button class="pin-tecla mono" data-digito="' + n + '" style="background:#0E2235;border:1px solid #2A3F54;border-radius:12px;color:#E4EAEF;font-size:22px;font-weight:600;height:64px;cursor:pointer">' + n + '</button>';
+  }).join("");
+
+  return (
+    '<div style="min-height:100vh;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:30px 24px;background:#0B1B2B">' +
+      '<div style="margin-bottom:36px;text-align:center">' +
+        '<div class="topbar-titulo cond" style="margin-bottom:6px">PLANIFICADOR DE OPERACIONES</div>' +
+        '<div class="cond" style="font-size:16px;color:#E4EAEF;font-weight:600;margin-top:18px">' + titulo + '</div>' +
+        '<div class="cond" style="font-size:12.5px;color:#8AA0B5;margin-top:4px">' + subtitulo + '</div>' +
+      '</div>' +
+      '<div style="display:flex;gap:10px;margin-bottom:14px">' + dotsHtml + '</div>' +
+      (state.pinError ? '<div class="cond" style="color:#E0524A;font-size:12.5px;margin-bottom:14px;text-align:center">' + escapeHTML(state.pinError) + '</div>' : '<div style="height:14px;margin-bottom:14px"></div>') +
+      '<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:14px;width:100%;max-width:280px">' + tecladoHtml + '</div>' +
+      (modo ? '<button id="pin-cancelar-creacion" class="cond" style="margin-top:24px;background:transparent;border:none;color:#5C7184;font-size:12.5px;cursor:pointer">Cancelar</button>' : '') +
+    '</div>'
+  );
+}
+
+function renderPantallaElegirLongitudPin() {
+  const opciones = [4, 5, 6];
+  const botonesHtml = opciones.map(function (n) {
+    return '<button class="pin-longitud-btn cond" data-longitud="' + n + '" style="padding:16px;border-radius:10px;border:1px solid #2A3F54;background:#0E2235;color:#E4EAEF;font-size:15px;font-weight:600;cursor:pointer">' + n + ' dígitos</button>';
+  }).join("");
+  return (
+    '<div style="min-height:100vh;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:30px 24px;background:#0B1B2B">' +
+      '<div style="margin-bottom:30px;text-align:center">' +
+        '<div class="topbar-titulo cond" style="margin-bottom:6px">PLANIFICADOR DE OPERACIONES</div>' +
+        '<div class="cond" style="font-size:16px;color:#E4EAEF;font-weight:600;margin-top:18px">¿Cuántos dígitos quieres en tu PIN?</div>' +
+      '</div>' +
+      '<div style="display:flex;flex-direction:column;gap:10px;width:100%;max-width:260px">' + botonesHtml + '</div>' +
+      '<button id="pin-cancelar-creacion" class="cond" style="margin-top:24px;background:transparent;border:none;color:#5C7184;font-size:12.5px;cursor:pointer">Cancelar</button>' +
+    '</div>'
+  );
+}
+
+function bindEventsBloqueo() {
+  document.querySelectorAll(".pin-longitud-btn").forEach(function (btn) {
+    btn.onclick = function () {
+      state.pinLongitudObjetivo = Number(btn.getAttribute("data-longitud"));
+      state.pinModoCreacion = "crear";
+      state.pinTemp = "";
+      render();
+    };
+  });
+  document.querySelectorAll(".pin-tecla").forEach(function (btn) {
+    btn.onclick = function () {
+      if (state.pinTemp.length >= 6) return;
+      state.pinTemp += btn.getAttribute("data-digito");
+      state.pinError = "";
+      procesarPinSiCompleto();
+    };
+  });
+  const btnBorrar = document.getElementById("pin-borrar");
+  if (btnBorrar) {
+    btnBorrar.onclick = function () {
+      state.pinTemp = state.pinTemp.slice(0, -1);
+      state.pinError = "";
+      render();
+    };
+  }
+  const btnCancelarCreacion = document.getElementById("pin-cancelar-creacion");
+  if (btnCancelarCreacion) {
+    btnCancelarCreacion.onclick = function () {
+      const habiaPinAntes = !!loadLocal(PIN_KEY, null);
+      state.pinModoCreacion = null;
+      state.pinTemp = "";
+      state.pinPrimerIngreso = "";
+      state.pinError = "";
+      // Si ya existía un PIN guardado (estábamos cambiándolo), al cancelar volvemos
+      // a pedir el PIN actual en vez de dejar la app abierta sin protección.
+      state.pantallaBloqueada = habiaPinAntes;
+      render();
+    };
+  }
+}
+
+function procesarPinSiCompleto() {
+  const pin = state.pinTemp;
+  const modo = state.pinModoCreacion;
+
+  if (!modo) {
+    // Modo ingreso: comparar contra el PIN guardado en cuanto la longitud coincida.
+    const guardado = loadLocal(PIN_KEY, "");
+    if (pin.length === guardado.length) {
+      if (pin === guardado) {
+        state.pinTemp = "";
+        state.pinError = "";
+        if (state.pinVerificandoParaCambiar) {
+          // Verificación exitosa al intentar cambiar el PIN: pasamos directo a
+          // crear uno nuevo, sin desbloquear la app de vuelta al calendario.
+          state.pinVerificandoParaCambiar = false;
+          iniciarCreacionPin();
+        } else {
+          state.pantallaBloqueada = false;
+        }
+      } else {
+        state.pinError = "PIN incorrecto. Intenta nuevamente.";
+        state.pinTemp = "";
+      }
+    }
+  } else if (modo === "crear") {
+    if (pin.length === state.pinLongitudObjetivo) {
+      state.pinPrimerIngreso = pin;
+      state.pinTemp = "";
+      state.pinModoCreacion = "confirmar";
+    }
+  } else if (modo === "confirmar") {
+    if (pin.length === state.pinPrimerIngreso.length) {
+      if (pin === state.pinPrimerIngreso) {
+        saveLocal(PIN_KEY, pin);
+        state.pantallaBloqueada = false;
+        state.pinModoCreacion = null;
+        state.pinTemp = "";
+        state.pinPrimerIngreso = "";
+        state.pinError = "";
+      } else {
+        state.pinError = "Los PIN no coinciden. Intenta de nuevo.";
+        state.pinTemp = "";
+        state.pinModoCreacion = "crear";
+        state.pinPrimerIngreso = "";
+      }
+    }
+  }
+  render();
+}
+
+// Inicia el flujo de crear/cambiar PIN desde el menú lateral.
+function iniciarCreacionPin() {
+  state.pinModoCreacion = "elegirLongitud";
+  state.pinTemp = "";
+  state.pinPrimerIngreso = "";
+  state.pinError = "";
+  state.pantallaBloqueada = true;
+  state.drawerSeccionesAbierto = false;
+  render();
+}
+
+function eliminarPin() {
+  try { localStorage.removeItem(PIN_KEY); } catch (e) {}
+  state.pantallaBloqueada = false;
+  render();
+}
+
 function renderDrawerSecciones() {
   const hoyISO = fmtISO(new Date());
   const pendientesHoy = (eventosPorFecha()[hoyISO] || []).filter(function (e) { return !e.completado; });
@@ -2496,6 +2685,9 @@ function renderDrawerSecciones() {
         '<div style="margin-top:auto;padding:12px 16px;border-top:1px solid #1E3247;padding-bottom:max(12px, env(safe-area-inset-bottom))">' +
           '<button class="cond" id="btn-deshacer" ' + (puedeDeshacer() ? '' : 'disabled') + ' style="width:100%;display:flex;align-items:center;justify-content:center;gap:6px;padding:9px;border-radius:7px;border:1px solid ' + (puedeDeshacer() ? "#D99A3D" : "#2A3F54") + ';background:transparent;color:' + (puedeDeshacer() ? "#D99A3D" : "#5C7184") + ';font-size:12.5px;font-weight:600;cursor:' + (puedeDeshacer() ? "pointer" : "default") + ';margin-bottom:8px;opacity:' + (puedeDeshacer() ? "1" : "0.5") + '">' +
             icon("undo", 14) + ' Deshacer último movimiento' + (puedeDeshacer() ? ' <span class="mono">(' + historialDeshacer.length + ')</span>' : '') +
+          '</button>' +
+          '<button class="cond" id="btn-cambiar-pin" style="width:100%;display:flex;align-items:center;justify-content:center;gap:6px;padding:9px;border-radius:7px;border:1px solid #2A3F54;background:transparent;color:#8AA0B5;font-size:12.5px;font-weight:600;cursor:pointer;margin-bottom:8px">' +
+            icon("lock", 14) + ' ' + (loadLocal(PIN_KEY, null) ? "Cambiar PIN de acceso" : "Crear PIN de acceso") +
           '</button>' +
           '<button class="cond" id="btn-diagnostico" style="width:100%;display:flex;align-items:center;justify-content:center;gap:6px;padding:9px;border-radius:7px;border:1px solid #2A3F54;background:transparent;color:#5C7184;font-size:12px;cursor:pointer">' +
             '📶 Estado sin internet / Respaldo de datos' +
@@ -3256,6 +3448,11 @@ function guardarUltimaNavegacionSiCambio() {
 }
 
 function render() {
+  if (state.pantallaBloqueada) {
+    document.getElementById("app").innerHTML = renderPantallaBloqueo();
+    bindEventsBloqueo();
+    return;
+  }
   guardarUltimaNavegacionSiCambio();
   let html;
   if (state.seccion === "personal") {
@@ -3336,6 +3533,26 @@ function bindEvents() {
     btnDeshacerGlobal.onclick = function () {
       state.drawerSeccionesAbierto = false;
       deshacerUltimoCambio();
+    };
+  }
+
+  const btnCambiarPinGlobal = document.getElementById("btn-cambiar-pin");
+  if (btnCambiarPinGlobal) {
+    btnCambiarPinGlobal.onclick = function () {
+      const yaExistePin = !!loadLocal(PIN_KEY, null);
+      state.drawerSeccionesAbierto = false;
+      if (yaExistePin) {
+        // Pide verificar el PIN actual antes de permitir cambiarlo; al verificarse
+        // correctamente, en vez de solo desbloquear, pasa directo a crear uno nuevo.
+        state.pinVerificandoParaCambiar = true;
+        state.pantallaBloqueada = true;
+        state.pinModoCreacion = null;
+        state.pinTemp = "";
+        state.pinError = "";
+        render();
+      } else {
+        iniciarCreacionPin();
+      }
     };
   }
 
