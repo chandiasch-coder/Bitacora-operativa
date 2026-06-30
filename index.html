@@ -4110,6 +4110,34 @@ setInterval(function () {
   if (clockEl) clockEl.textContent = fmtFechaLarga(new Date());
 }, 30000);
 
+/* ---------- Re-bloqueo automático por PIN tras tiempo en segundo plano ----------
+   Si la app pasa a segundo plano (se minimiza, cambias de app, se apaga la
+   pantalla) y vuelve después de más de UMBRAL_REBLOQUEO_MS, se vuelve a pedir
+   el PIN, igual que al abrir la app por primera vez. Si vuelve antes de ese
+   tiempo, no se interrumpe al usuario (evita pedir el PIN por cambios breves
+   de app, como copiar algo del WhatsApp). */
+const UMBRAL_REBLOQUEO_MS = 60 * 1000; // 1 minuto
+let momentoOcultamiento = null;
+
+document.addEventListener("visibilitychange", function () {
+  if (document.hidden) {
+    momentoOcultamiento = Date.now();
+  } else {
+    if (momentoOcultamiento !== null) {
+      const tiempoOculto = Date.now() - momentoOcultamiento;
+      momentoOcultamiento = null;
+      if (tiempoOculto >= UMBRAL_REBLOQUEO_MS && loadLocal(PIN_KEY, null)) {
+        state.pantallaBloqueada = true;
+        state.pinModoCreacion = null;
+        state.pinVerificandoParaCambiar = false;
+        state.pinTemp = "";
+        state.pinError = "";
+        render();
+      }
+    }
+  }
+});
+
 /* ---------- Arranque ---------- */
 render();
 
