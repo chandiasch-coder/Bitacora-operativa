@@ -571,6 +571,8 @@ const state = {
   personaEditando: null,
   hechoEditando: null,
   eliminarPersonaPendienteId: null,
+  categoriaEditandoId: null,
+  responsableEditandoNombre: null,
   eliminarHechoPendienteId: null,
   modalDelegacion: null, // 'tarea' | 'confirmarEliminarTarea'
   delegacionEditando: null,
@@ -611,6 +613,12 @@ const state = {
 // IMPORTANTE: cualquier nuevo dato persistente (nueva sección, nueva lista de
 // configuración, etc.) DEBE agregarse aquí. persist() y el respaldo/restauración
 // leen de esta misma lista, así que agregarlo aquí basta para que ambos lo cubran.
+// Versión de la app: se actualiza manualmente cada vez que se entrega una nueva
+// versión del archivo, para que el usuario pueda confirmar en el menú lateral que
+// está usando la última versión trabajada (útil si tiene el archivo en más de
+// un dispositivo y quiere verificar cuál subió más recientemente a cada uno).
+const APP_VERSION = "2026.06.30-2";
+
 const CAMPOS_PERSISTENTES = [
   { campo: "eventos", clave: STORAGE_KEY },
   { campo: "categorias", clave: CAT_KEY },
@@ -2692,6 +2700,7 @@ function renderDrawerSecciones() {
           '<button class="cond" id="btn-diagnostico" style="width:100%;display:flex;align-items:center;justify-content:center;gap:6px;padding:9px;border-radius:7px;border:1px solid #2A3F54;background:transparent;color:#5C7184;font-size:12px;cursor:pointer">' +
             '📶 Estado sin internet / Respaldo de datos' +
           '</button>' +
+          '<div class="mono" style="text-align:center;font-size:10px;color:#3D4E60;margin-top:10px;letter-spacing:0.5px">VERSIÓN ' + APP_VERSION + '</div>' +
         '</div>' +
       '</div>' +
     '</div>'
@@ -3170,15 +3179,34 @@ function renderModalEvento() {
 
 function renderModalCategorias() {
   const catRows = state.categorias.map(function (c) {
+    if (state.categoriaEditandoId === c.id) {
+      return '<div style="display:flex;align-items:center;gap:8px">' +
+        '<input type="color" id="cat-edit-color-' + c.id + '" value="' + c.color + '" style="width:32px;height:32px;border:1px solid #2A3F54;border-radius:6px;background:transparent;cursor:pointer;flex-shrink:0" />' +
+        '<input class="field" id="cat-edit-nombre-' + c.id + '" value="' + escapeHTML(c.label) + '" style="flex:1;padding:6px 10px" />' +
+        '<button class="iconbtn-sm" data-action="guardar-categoria" data-id="' + c.id + '" title="Guardar" style="color:#5FE3A1">' + icon("checkCircle", 14) + '</button>' +
+        '<button class="iconbtn-sm" data-action="cancelar-editar-categoria" title="Cancelar">' + icon("x", 13) + '</button>' +
+      '</div>';
+    }
     return '<div style="display:flex;align-items:center;gap:8px">' +
       '<div style="width:14px;height:14px;border-radius:3px;background:' + c.color + ';flex-shrink:0"></div>' +
       '<div class="cond" style="flex:1;font-size:13.5px;color:#E4EAEF">' + escapeHTML(c.label) + '</div>' +
+      '<button class="iconbtn-sm" data-action="editar-categoria" data-id="' + c.id + '" title="Editar">' + icon("edit", 13) + '</button>' +
       '<button class="iconbtn-sm" data-action="del-categoria" data-id="' + c.id + '" title="Eliminar">' + icon("trash", 13) + '</button>' +
     '</div>';
   }).join('<div style="height:6px"></div>');
 
   const respChips = state.responsables.map(function (r) {
-    return '<div class="chip cond">' + escapeHTML(r) + '<button data-action="del-responsable" data-nombre="' + escapeHTML(r) + '">' + icon("x", 12) + '</button></div>';
+    if (state.responsableEditandoNombre === r) {
+      return '<div class="chip cond" style="padding:3px 6px 3px 10px;gap:6px">' +
+        '<input class="field" id="resp-edit-nombre-input" value="' + escapeHTML(r) + '" style="width:120px;padding:3px 6px;font-size:12.5px" />' +
+        '<button data-action="guardar-responsable" data-nombre-original="' + escapeHTML(r) + '" title="Guardar" style="color:#5FE3A1">' + icon("checkCircle", 12) + '</button>' +
+        '<button data-action="cancelar-editar-responsable" title="Cancelar">' + icon("x", 12) + '</button>' +
+      '</div>';
+    }
+    return '<div class="chip cond">' + escapeHTML(r) +
+      '<button data-action="editar-responsable" data-nombre="' + escapeHTML(r) + '" title="Editar" style="margin-left:2px">' + icon("edit", 11) + '</button>' +
+      '<button data-action="del-responsable" data-nombre="' + escapeHTML(r) + '">' + icon("x", 12) + '</button>' +
+    '</div>';
   }).join("");
 
   // Resumen de carga: pendientes (no completados, sin importar fecha) por responsable.
@@ -3376,7 +3404,7 @@ function renderModalDiagnostico() {
           '<div class="mono" style="font-size:10.5px;color:#8AA0B5;letter-spacing:0.5px;margin-bottom:10px">RESPALDO DE DATOS</div>' +
           '<div class="cond" style="font-size:11.5px;color:#8AA0B5;line-height:1.5;margin-bottom:10px">Guarda una copia de todo: eventos, categorías, responsables, Personal (personas y hechos), y Molo (buques y actividades). Útil antes de borrar caché del navegador o cambiar de teléfono.</div>' +
           '<div style="display:flex;gap:8px">' +
-            '<button class="cond" id="btn-exportar-respaldo" style="flex:1;display:flex;align-items:center;justify-content:center;gap:6px;padding:9px;border-radius:7px;border:1px solid #5FE3A1;background:transparent;color:#5FE3A1;font-size:12.5px;font-weight:600;cursor:pointer">' + icon("download2", 14) + ' Descargar respaldo</button>' +
+            '<button class="cond" id="btn-exportar-respaldo" style="flex:1;display:flex;align-items:center;justify-content:center;gap:6px;padding:9px;border-radius:7px;border:1px solid #5FE3A1;background:transparent;color:#5FE3A1;font-size:12.5px;font-weight:600;cursor:pointer">' + icon("download2", 14) + ' Compartir respaldo</button>' +
             '<button class="cond" id="btn-importar-respaldo" style="flex:1;display:flex;align-items:center;justify-content:center;gap:6px;padding:9px;border-radius:7px;border:1px solid #D99A3D;background:transparent;color:#D99A3D;font-size:12.5px;font-weight:600;cursor:pointer">' + icon("upload", 14) + ' Restaurar respaldo</button>' +
           '</div>' +
           '<input type="file" id="input-archivo-respaldo" accept="application/json" style="display:none" />' +
@@ -3616,18 +3644,43 @@ function bindEvents() {
         };
         CAMPOS_PERSISTENTES.forEach(function (c) { respaldo[c.campo] = state[c.campo]; });
 
-        const blob = new Blob([JSON.stringify(respaldo, null, 2)], { type: "application/json" });
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement("a");
-        a.href = url;
         const hoyStr = fmtISO(new Date());
-        a.download = "respaldo_bitacora_" + hoyStr + ".json";
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
-        URL.revokeObjectURL(url);
+        const nombreArchivo = "respaldo_bitacora_" + hoyStr + ".json";
+        const contenido = JSON.stringify(respaldo, null, 2);
+        const blob = new Blob([contenido], { type: "application/json" });
         const msg = document.getElementById("respaldo-mensaje");
-        if (msg) { msg.style.color = "#5FE3A1"; msg.textContent = "✅ Respaldo descargado (" + CAMPOS_PERSISTENTES.length + " conjuntos de datos)."; }
+
+        // Preferir la hoja nativa de compartir de iOS (incluye AirDrop directo)
+        // cuando el navegador la soporta con archivos adjuntos. Si no está disponible
+        // (Safari en Mac, navegadores de escritorio, versiones viejas de iOS), se
+        // recurre a la descarga tradicional como respaldo.
+        const archivo = new File([blob], nombreArchivo, { type: "application/json" });
+        const puedeCompartirArchivo = navigator.canShare && navigator.canShare({ files: [archivo] });
+
+        if (puedeCompartirArchivo) {
+          navigator.share({
+            files: [archivo],
+            title: "Respaldo Planificador de Operaciones",
+          }).then(function () {
+            if (msg) { msg.style.color = "#5FE3A1"; msg.textContent = "✅ Respaldo compartido (" + CAMPOS_PERSISTENTES.length + " conjuntos de datos)."; }
+          }).catch(function (err) {
+            // El usuario canceló la hoja de compartir, o falló: no es un error real
+            // que deba mostrarse como fallo, salvo que no sea una cancelación.
+            if (err && err.name !== "AbortError") {
+              if (msg) { msg.style.color = "#E0524A"; msg.textContent = "❌ No se pudo compartir: " + err.message; }
+            }
+          });
+        } else {
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement("a");
+          a.href = url;
+          a.download = nombreArchivo;
+          document.body.appendChild(a);
+          a.click();
+          document.body.removeChild(a);
+          URL.revokeObjectURL(url);
+          if (msg) { msg.style.color = "#5FE3A1"; msg.textContent = "✅ Respaldo descargado (" + CAMPOS_PERSISTENTES.length + " conjuntos de datos)."; }
+        }
       };
     }
 
@@ -3839,6 +3892,40 @@ function bindEvents() {
     else if (action === "cerrar-modal") el.onclick = cerrarModal;
     else if (action === "del-categoria") el.onclick = function (e) { e.stopPropagation(); eliminarCategoria(id); };
     else if (action === "del-responsable") el.onclick = function (e) { e.stopPropagation(); eliminarResponsable(el.getAttribute("data-nombre")); };
+    else if (action === "editar-categoria") el.onclick = function (e) { e.stopPropagation(); state.categoriaEditandoId = id; render(); };
+    else if (action === "cancelar-editar-categoria") el.onclick = function (e) { e.stopPropagation(); state.categoriaEditandoId = null; render(); };
+    else if (action === "guardar-categoria") el.onclick = function (e) {
+      e.stopPropagation();
+      const nombreInput = document.getElementById("cat-edit-nombre-" + id);
+      const colorInput = document.getElementById("cat-edit-color-" + id);
+      const nombre = (nombreInput && nombreInput.value.trim()) || "";
+      const color = (colorInput && colorInput.value) || "#8AA0B5";
+      if (!nombre) return;
+      state.categorias = state.categorias.map(function (c) {
+        return c.id === id ? Object.assign({}, c, { label: nombre.toUpperCase(), color: color }) : c;
+      });
+      state.categoriaEditandoId = null;
+      persist();
+      render();
+    };
+    else if (action === "editar-responsable") el.onclick = function (e) { e.stopPropagation(); state.responsableEditandoNombre = el.getAttribute("data-nombre"); render(); };
+    else if (action === "cancelar-editar-responsable") el.onclick = function (e) { e.stopPropagation(); state.responsableEditandoNombre = null; render(); };
+    else if (action === "guardar-responsable") el.onclick = function (e) {
+      e.stopPropagation();
+      const nombreOriginal = el.getAttribute("data-nombre-original");
+      const input = document.getElementById("resp-edit-nombre-input");
+      const nuevoNombre = (input && input.value.trim()) || "";
+      if (!nuevoNombre) return;
+      // Renombrar el responsable en la lista predefinida Y en todos los eventos
+      // que ya lo tenían asignado, para mantener consistencia con los datos existentes.
+      state.responsables = state.responsables.map(function (r) { return r === nombreOriginal ? nuevoNombre : r; });
+      state.eventos = state.eventos.map(function (ev) {
+        return ev.responsable === nombreOriginal ? Object.assign({}, ev, { responsable: nuevoNombre }) : ev;
+      });
+      state.responsableEditandoNombre = null;
+      persist();
+      render();
+    };
   });
 
   // Cerrar overlay al tocar el fondo (no el modal)
@@ -3870,6 +3957,22 @@ function bindEvents() {
         fechaFinInput.min = fechaInicioInput.value;
         if (fechaFinInput.value < fechaInicioInput.value) fechaFinInput.value = fechaInicioInput.value;
       };
+    }
+
+    // Al ingresar la hora de inicio en un evento NUEVO (no al editar uno existente,
+    // para no pisar una hora de término que el usuario ya haya definido a mano),
+    // se actualiza automáticamente la hora de término a 30 minutos después.
+    // Se escuchan tanto "input" como "change" porque el selector nativo de hora en
+    // iOS Safari no siempre dispara "change" de forma confiable en cada interacción.
+    const horaInicioInput = document.getElementById("ev-hora");
+    const horaFinInput = document.getElementById("ev-hora-fin");
+    if (horaInicioInput && horaFinInput && !state.eventoEditando) {
+      const actualizarHoraFinAuto = function () {
+        if (!horaInicioInput.value) return;
+        horaFinInput.value = calcularHoraTermino(horaInicioInput.value, 30).split(" ")[0];
+      };
+      horaInicioInput.onchange = actualizarHoraFinAuto;
+      horaInicioInput.oninput = actualizarHoraFinAuto;
     }
 
     const repetirSelect = document.getElementById("ev-repetir");
