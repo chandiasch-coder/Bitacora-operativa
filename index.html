@@ -52,11 +52,11 @@
 
   .barra-secciones-btn {
     width: 100%; display: flex; align-items: center; justify-content: center; gap: 8px;
-    padding: 11px 16px; border: none; border-bottom: 1px solid #1E3247;
-    background: #0A1622; color: #C9D2DA; font-size: 13.5px; font-weight: 600; cursor: pointer;
+    padding: 11px 16px; border: 1px solid #2A3F54;
+    background: #0E2235; color: #C9D2DA; font-size: 13.5px; font-weight: 600; cursor: pointer;
     font-family: -apple-system, system-ui, sans-serif;
   }
-  .barra-secciones-btn:active { background: #0E2235; }
+  .barra-secciones-btn:active { background: #16314A; }
 
   .drawer-overlay {
     position: fixed; inset: 0; background: rgba(5,12,20,0.6); backdrop-filter: blur(1px);
@@ -617,7 +617,7 @@ const state = {
 // versión del archivo, para que el usuario pueda confirmar en el menú lateral que
 // está usando la última versión trabajada (útil si tiene el archivo en más de
 // un dispositivo y quiere verificar cuál subió más recientemente a cada uno).
-const APP_VERSION = "2026.06.30-2";
+const APP_VERSION = "2026.06.30-4";
 
 const CAMPOS_PERSISTENTES = [
   { campo: "eventos", clave: STORAGE_KEY },
@@ -706,6 +706,22 @@ function migrarCategoriaHome() {
   persist();
 }
 migrarCategoriaHome();
+
+// Migración: el estado "bloqueada" de Delegación fue eliminado. Las tareas que
+// ya lo tenían asignado se reasignan a "en_curso" (lo más cercano semánticamente:
+// tenían trabajo iniciado que estaba detenido).
+function migrarEstadoBloqueada() {
+  let huboCambios = false;
+  state.eventos = state.eventos.map(function (e) {
+    if (e.estadoDelegacion === "bloqueada") {
+      huboCambios = true;
+      return Object.assign({}, e, { estadoDelegacion: "en_curso" });
+    }
+    return e;
+  });
+  if (huboCambios) persist();
+}
+migrarEstadoBloqueada();
 
 function catById(id) {
   return state.categorias.find(function (c) { return c.id === id; }) || null;
@@ -814,6 +830,7 @@ function cerrarModal() {
   state.modal = null;
   state.subtareasTemp = [];
   state.editarSerieCompleta = null;
+  state.eventoEditando = null;
   render();
 }
 const REPETICION_HORIZONTE_DEFAULT = 12; // si no se especifica fecha límite, número de ocurrencias futuras
@@ -1016,16 +1033,16 @@ function cancelarEleccionSerie() {
 }
 
 function moverASiguienteDia(id) {
+  const hoy = new Date();
+  const mananaISO = fmtISO(addDays(hoy, 1));
   state.eventos = state.eventos.map(function (e) {
     if (e.id !== id) return e;
-    const fechaOriginal = new Date(e.fecha + "T00:00:00");
-    const nuevaFecha = fmtISO(addDays(fechaOriginal, 1));
-    const update = { fecha: nuevaFecha };
+    const update = { fecha: mananaISO };
     if (e.fechaFin && e.fechaFin > e.fecha) {
-      const finOriginal = new Date(e.fechaFin + "T00:00:00");
-      update.fechaFin = fmtISO(addDays(finOriginal, 1));
+      const diasRango = Math.round((new Date(e.fechaFin + "T00:00:00") - new Date(e.fecha + "T00:00:00")) / 86400000);
+      update.fechaFin = fmtISO(addDays(new Date(mananaISO + "T00:00:00"), diasRango));
     } else {
-      update.fechaFin = nuevaFecha;
+      update.fechaFin = mananaISO;
     }
     return Object.assign({}, e, update);
   });
@@ -1458,7 +1475,6 @@ function bindEventsPersonal() {
 const ESTADOS_DELEGACION = [
   { id: "no_iniciada", label: "NO INICIADA", color: "#8AA0B5" },
   { id: "en_curso", label: "EN CURSO", color: "#D99A3D" },
-  { id: "bloqueada", label: "BLOQUEADA", color: "#E0524A" },
   { id: "lista", label: "LISTA", color: "#5FE3A1" },
 ];
 function estadoDelegacionById(id) {
@@ -2461,10 +2477,6 @@ function renderTopbar() {
         '</div>' +
       '</div>' +
     '</div>' +
-    '<button id="btn-abrir-drawer" class="barra-secciones-btn">' +
-      icon("menu", 16) + ' Menú' +
-    '</button>' +
-    '<div class="cond" style="text-align:center;padding:8px 16px 10px;font-size:12.5px;font-weight:600;color:#8AA0B5;letter-spacing:0.5px;border-bottom:1px solid #1E3247">' + SECCIONES_LABEL[state.seccion] + '</div>' +
     (state.drawerSeccionesAbierto ? renderDrawerSecciones() : "")
   );
 }
@@ -2697,10 +2709,15 @@ function renderDrawerSecciones() {
           '<button class="cond" id="btn-cambiar-pin" style="width:100%;display:flex;align-items:center;justify-content:center;gap:6px;padding:9px;border-radius:7px;border:1px solid #2A3F54;background:transparent;color:#8AA0B5;font-size:12.5px;font-weight:600;cursor:pointer;margin-bottom:8px">' +
             icon("lock", 14) + ' ' + (loadLocal(PIN_KEY, null) ? "Cambiar PIN de acceso" : "Crear PIN de acceso") +
           '</button>' +
+          (state.eventos.length > 0
+            ? '<button class="cond" id="btn-export-todo" style="width:100%;display:flex;align-items:center;justify-content:center;gap:6px;padding:9px;border-radius:7px;border:1px solid #2A3F54;background:transparent;color:#D99A3D;font-size:12.5px;font-weight:600;cursor:pointer;margin-bottom:8px">' +
+                icon("download", 14) + ' Exportar todo (.ics)' +
+              '</button>'
+            : '') +
           '<button class="cond" id="btn-diagnostico" style="width:100%;display:flex;align-items:center;justify-content:center;gap:6px;padding:9px;border-radius:7px;border:1px solid #2A3F54;background:transparent;color:#5C7184;font-size:12px;cursor:pointer">' +
             '📶 Estado sin internet / Respaldo de datos' +
           '</button>' +
-          '<div class="mono" style="text-align:center;font-size:10px;color:#3D4E60;margin-top:10px;letter-spacing:0.5px">VERSIÓN ' + APP_VERSION + '</div>' +
+          '<div class="mono" style="text-align:center;font-size:11px;color:#8AA0B5;font-weight:600;margin-top:10px;letter-spacing:0.5px">VERSIÓN ' + APP_VERSION + '</div>' +
         '</div>' +
       '</div>' +
     '</div>'
@@ -2724,6 +2741,16 @@ function renderControles() {
   );
 }
 
+function renderBarraMenuSolo() {
+  return (
+    '<div class="barra-acciones-fija">' +
+      '<button id="btn-abrir-drawer" class="barra-secciones-btn" style="border-radius:8px">' +
+        icon("menu", 16) + ' Menú' +
+      '</button>' +
+    '</div>'
+  );
+}
+
 function renderBarraAccionesFija() {
   const catSeleccionadas = state.filtroCategorias || [];
   const respSeleccionados = state.filtroResponsables || [];
@@ -2732,6 +2759,9 @@ function renderBarraAccionesFija() {
 
   return (
     '<div class="barra-acciones-fija">' +
+      '<button id="btn-abrir-drawer" class="barra-secciones-btn" style="border-radius:8px;margin-bottom:8px">' +
+        icon("menu", 16) + ' Menú' +
+      '</button>' +
       '<div class="controls-fila" style="padding:0;gap:8px">' +
         '<button id="btn-abrir-panel-filtros" title="Filtros" style="display:flex;align-items:center;justify-content:center;position:relative;flex:1;height:42px;border-radius:7px;border:1px solid #2A3F54;background:transparent;color:#C9D2DA;cursor:pointer">' +
           icon("filter", 17) +
@@ -3156,6 +3186,15 @@ function renderModalEvento() {
           ) +
           '</div>' +
         '</div>' +
+        '<div class="campo" id="ev-estado-avance-wrap" style="' + (responsable ? "" : "display:none") + '">' +
+          '<label class="campo-label mono">ESTADO DE AVANCE</label>' +
+          '<div class="prio-row" id="ev-estado-avance-row" data-value="' + (ev ? estadoDelegacionDeEvento(ev) : "no_iniciada") + '">' +
+            ESTADOS_DELEGACION.map(function (es) {
+              const activo = (ev ? estadoDelegacionDeEvento(ev) : "no_iniciada") === es.id;
+              return '<button class="prio-btn cond" data-estado-avance="' + es.id + '" style="border:1.5px solid ' + es.color + ';background:' + (activo ? es.color : "transparent") + ';color:' + (activo ? "#0B1B2B" : es.color) + '">' + es.label + '</button>';
+            }).join("") +
+          '</div>' +
+        '</div>' +
         '<div class="campo"><label class="campo-label mono">PRIORIDAD</label><div class="prio-row" id="prio-row">' + prioButtons + '</div></div>' +
         '<div class="campo"><label class="campo-label mono">LUGAR (OPCIONAL)</label><input class="field" id="ev-lugar" value="' + escapeHTML(lugar) + '" placeholder="Ej: Puente, CIC, Cámara de oficiales" /></div>' +
         '<div class="campo">' +
@@ -3484,16 +3523,12 @@ function render() {
   guardarUltimaNavegacionSiCambio();
   let html;
   if (state.seccion === "personal") {
-    html = renderTopbar() + renderSeccionPersonal();
+    html = renderTopbar() + '<div style="padding-bottom:max(80px, calc(70px + env(safe-area-inset-bottom)))">' + renderSeccionPersonal() + '</div>' + renderBarraMenuSolo();
   } else if (state.seccion === "delegacion") {
-    html = renderTopbar() + renderSeccionDelegacion();
+    html = renderTopbar() + '<div style="padding-bottom:max(80px, calc(70px + env(safe-area-inset-bottom)))">' + renderSeccionDelegacion() + '</div>' + renderBarraMenuSolo();
   } else if (state.seccion === "molo") {
-    html = renderTopbar() + renderSeccionMolo();
+    html = renderTopbar() + '<div style="padding-bottom:max(80px, calc(70px + env(safe-area-inset-bottom)))">' + renderSeccionMolo() + '</div>' + renderBarraMenuSolo();
   } else {
-    const fab = state.eventos.length > 0
-      ? '<button class="fab cond" id="btn-export-todo">' + icon("download", 15) + ' Exportar todo (.ics)</button>'
-      : "";
-
     let modalHtml = "";
     if (state.modal === "evento") modalHtml = renderModalEvento();
     else if (state.modal === "categorias") modalHtml = renderModalCategorias();
@@ -3507,7 +3542,6 @@ function render() {
       renderControles() +
       (state.vista === "agenda" ? "" : renderNavTemporal()) +
       '<div class="view-area" style="padding:10px 18px max(110px, calc(100px + env(safe-area-inset-bottom)))">' + (state.vista === "agenda" ? renderVistaAgenda() : state.vista === "semana" ? renderVistaSemana() : renderVistaMes()) + '</div>' +
-      fab +
       renderBarraAccionesFija() +
       modalHtml +
       confirmHtml;
@@ -3581,6 +3615,15 @@ function bindEvents() {
       } else {
         iniciarCreacionPin();
       }
+    };
+  }
+
+  const btnExportTodoGlobal = document.getElementById("btn-export-todo");
+  if (btnExportTodoGlobal) {
+    btnExportTodoGlobal.onclick = function () {
+      state.drawerSeccionesAbierto = false;
+      downloadICSBatch(eventosVisibles(), "bitacora_completa");
+      render();
     };
   }
 
@@ -3854,10 +3897,6 @@ function bindEvents() {
   };
   if (navHoy) navHoy.onclick = function () { state.cursor = new Date(); render(); };
 
-  // FAB exportar todo
-  const btnExportTodo = document.getElementById("btn-export-todo");
-  if (btnExportTodo) btnExportTodo.onclick = function () { downloadICSBatch(eventosVisibles(), "bitacora_completa"); };
-
   // Delegación de acciones por data-action dentro de #app
   app.querySelectorAll("[data-action]").forEach(function (el) {
     const action = el.getAttribute("data-action");
@@ -4059,6 +4098,11 @@ function bindEvents() {
             document.getElementById("resp-wrap").innerHTML = renderRespSelectOnly("");
             bindRespSelect();
           };
+          actualizarVisibilidadEstadoAvance();
+          const respLibreInput = document.getElementById("ev-responsable-libre");
+          if (respLibreInput) respLibreInput.oninput = actualizarVisibilidadEstadoAvance;
+        } else {
+          actualizarVisibilidadEstadoAvance();
         }
       };
     }
@@ -4067,7 +4111,36 @@ function bindEvents() {
       btnRespVolver.onclick = function () {
         document.getElementById("resp-wrap").innerHTML = renderRespSelectOnly("");
         bindRespSelect();
+        actualizarVisibilidadEstadoAvance();
       };
+    }
+    const respLibreInputInicial = document.getElementById("ev-responsable-libre");
+    if (respLibreInputInicial) respLibreInputInicial.oninput = actualizarVisibilidadEstadoAvance;
+
+    function actualizarVisibilidadEstadoAvance() {
+      const wrap = document.getElementById("ev-estado-avance-wrap");
+      if (!wrap) return;
+      const respLibre = document.getElementById("ev-responsable-libre");
+      const respSelectAhora = document.getElementById("ev-responsable");
+      const valorResp = respLibre ? respLibre.value.trim() : (respSelectAhora ? respSelectAhora.value : "");
+      wrap.style.display = valorResp ? "" : "none";
+    }
+
+    const estadoAvanceRow = document.getElementById("ev-estado-avance-row");
+    if (estadoAvanceRow) {
+      estadoAvanceRow.querySelectorAll("[data-estado-avance]").forEach(function (btn) {
+        btn.onclick = function () {
+          const estadoId = btn.getAttribute("data-estado-avance");
+          estadoAvanceRow.dataset.value = estadoId;
+          estadoAvanceRow.querySelectorAll("[data-estado-avance]").forEach(function (b2) {
+            const eid = b2.getAttribute("data-estado-avance");
+            const es = estadoDelegacionById(eid);
+            const activo = eid === estadoId;
+            b2.style.background = activo ? es.color : "transparent";
+            b2.style.color = activo ? "#0B1B2B" : es.color;
+          });
+        };
+      });
     }
 
     // Botones de prioridad (sin re-render completo, solo toggle visual + estado en dataset)
@@ -4104,13 +4177,15 @@ function bindEvents() {
         const categoria = document.getElementById("ev-categoria").value;
         const respLibre = document.getElementById("ev-responsable-libre");
         const respSelect = document.getElementById("ev-responsable");
-        const responsable = respLibre ? respLibre.value : (respSelect ? respSelect.value : "");
+        const responsable = (respLibre ? respLibre.value : (respSelect ? respSelect.value : "")).trim();
         const lugar = document.getElementById("ev-lugar").value;
         const notas = document.getElementById("ev-notas").value;
         const interdepartamental = !!(document.getElementById("ev-interdepartamental") || {}).checked;
         const prioridad = (document.getElementById("prio-row") || {}).dataset
           ? document.getElementById("prio-row").dataset.value
           : "media";
+        const estadoAvanceRowEl = document.getElementById("ev-estado-avance-row");
+        const estadoAvance = (estadoAvanceRowEl && estadoAvanceRowEl.dataset.value) || "no_iniciada";
 
         const errorBox = document.getElementById("ev-error");
         if (!titulo.trim()) { errorBox.innerHTML = '<div class="error-text cond">El título es obligatorio.</div>'; return; }
@@ -4125,13 +4200,20 @@ function bindEvents() {
         if (duracion <= 0) duracion += 1440;
         if (duracion <= 0) { errorBox.innerHTML = '<div class="error-text cond">La hora de término debe ser distinta a la de inicio.</div>'; return; }
 
+        // Si el responsable fue escrito a mano y no existe todavía en la lista
+        // predefinida, se agrega automáticamente para reutilizarlo en el futuro.
+        if (responsable && state.responsables.indexOf(responsable) === -1) {
+          state.responsables.push(responsable);
+        }
+
         guardarEvento({
           titulo: titulo.trim(), fecha: fecha, fechaFin: fechaFin, hora: hora, duracion: duracion,
           repetir: repetir, repetirHasta: repetir !== "nunca" ? repetirHasta : "",
-          categoria: categoria, responsable: (responsable || "").trim(), prioridad: prioridad || "media",
+          categoria: categoria, responsable: responsable, prioridad: prioridad || "media",
           lugar: lugar.trim(), notas: notas.trim(), subtareas: state.subtareasTemp.slice(),
           interdepartamental: interdepartamental,
-          completado: (state.eventoEditando && state.eventoEditando.completado) || false,
+          estadoDelegacion: responsable ? estadoAvance : undefined,
+          completado: responsable ? (estadoAvance === "lista") : ((state.eventoEditando && state.eventoEditando.completado) || false),
         });
       };
     }
