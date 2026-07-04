@@ -31,7 +31,7 @@
   input[type="date"], input[type="time"] { color-scheme: dark; }
   button { -webkit-appearance: none; appearance: none; }
 
-  #app { min-height: 100vh; background: #0B1B2B; }
+  #app { min-height: 100vh; min-height: 100dvh; background: #0B1B2B; }
 
   .topbar {
     border-bottom: 1px solid #1E3247;
@@ -151,6 +151,7 @@
     background: #0E2235; border-top: 1px solid #2A3F54;
     padding: 10px 14px max(10px, env(safe-area-inset-bottom));
     box-shadow: 0 -4px 16px rgba(0,0,0,0.35);
+    transform: translateZ(0); -webkit-transform: translateZ(0); will-change: transform;
   }
   .search-row {
     display: flex; align-items: center; gap: 8px; background: #0E2235; border: 1px solid #1E3247;
@@ -222,13 +223,14 @@
   }
 
   .month-dow-sticky-wrap {
-    position: sticky; top: env(safe-area-inset-top); z-index: 5; background: #0B1B2B;
+    position: sticky; top: env(safe-area-inset-top); z-index: 10; background: #0B1B2B;
     padding-top: 6px; padding-bottom: 4px; border-bottom: 1px solid #1E3247;
     overflow-x: auto; margin-bottom: 6px;
+    margin-left: -18px; margin-right: -18px; padding-left: 18px; padding-right: 18px;
   }
   .month-dow-sticky-wrap::-webkit-scrollbar { display: none; }
-  .month-scroll { overflow-x: auto; padding-bottom: 6px; }
-  .month-grid { display: grid; grid-template-columns: repeat(7, minmax(124px, 1fr)); gap: 6px; min-width: 880px; }
+  .month-scroll { overflow-x: auto; padding-bottom: 6px; position: relative; z-index: 1; }
+  .month-grid { display: grid; grid-template-columns: repeat(7, minmax(124px, 1fr)); gap: 6px; min-width: 880px; position: relative; z-index: 1; }
   .month-dow { display: grid; grid-template-columns: repeat(7, minmax(124px, 1fr)); gap: 6px; min-width: 880px; }
   .dow-label { text-align: center; font-size: 12px; color: #5C7184; padding: 4px 0; letter-spacing: 1px; }
   .month-cell { min-height: 132px; min-width: 0; max-width: 100%; border-radius: 8px; padding: 7px 8px; cursor: pointer; border: 1px solid #1E3247; background: #0E2235; display: flex; flex-direction: column; gap: 4px; overflow: hidden; }
@@ -315,6 +317,7 @@ const ICONS = {
   megaphone: '<path d="m3 11 18-5v12L3 14v-3z"/><path d="M11.6 16.8a3 3 0 1 1-5.8-1.6"/>',
   undo: '<path d="M3 7v6h6"/><path d="M21 17a9 9 0 0 0-15-6.7L3 13"/>',
   lock: '<rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/>',
+  barChart: '<line x1="12" y1="20" x2="12" y2="10"/><line x1="18" y1="20" x2="18" y2="4"/><line x1="6" y1="20" x2="6" y2="16"/>',
   trash: '<polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/>',
   edit: '<path d="M17 3a2.85 2.85 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/>',
   tag: '<path d="M20.59 13.41 13 21l-9-9V3h9z"/><circle cx="7" cy="7" r="1.2" fill="currentColor"/>',
@@ -617,7 +620,7 @@ const state = {
 // versión del archivo, para que el usuario pueda confirmar en el menú lateral que
 // está usando la última versión trabajada (útil si tiene el archivo en más de
 // un dispositivo y quiere verificar cuál subió más recientemente a cada uno).
-const APP_VERSION = "2026.06.30-4";
+const APP_VERSION = "2026.06.30-6";
 
 const CAMPOS_PERSISTENTES = [
   { campo: "eventos", clave: STORAGE_KEY },
@@ -940,6 +943,26 @@ function todoElRangoCompletado(ev) {
   return dias.every(function (d) { return marcadas.indexOf(d) !== -1; });
 }
 
+// Determina si un evento tiene al menos un día de su rango que ya pasó (antes de
+// hoy) y que todavía no fue marcado como completado. Para eventos de un solo día
+// es simplemente: fecha pasada y no completado. Esta es la definición correcta de
+// "vencido" a nivel de evento completo (para contadores globales), a diferencia
+// de "vencido en esta celda específica" que usa estaCompletadoEnFecha con la
+// fecha de esa celda puntual.
+function tieneAlgunDiaVencidoSinCompletar(ev, hoyISO) {
+  if (!esMultiDiaEvento(ev)) {
+    return !ev.completado && ev.fecha < hoyISO;
+  }
+  let cursor = new Date(ev.fecha + "T00:00:00");
+  const fin = new Date(ev.fechaFin + "T00:00:00");
+  while (cursor <= fin) {
+    const iso = fmtISO(cursor);
+    if (iso < hoyISO && !estaCompletadoEnFecha(ev, iso)) return true;
+    cursor = addDays(cursor, 1);
+  }
+  return false;
+}
+
 // toggleEstado(id, fechaIso): para eventos de un solo día, fechaIso se ignora y se
 // alterna el campo "completado" simple. Para eventos multi-día, se alterna SOLO
 // el día indicado dentro de completadoFechas, sin afectar el resto del rango.
@@ -1032,17 +1055,16 @@ function cancelarEleccionSerie() {
   render();
 }
 
-function moverASiguienteDia(id) {
-  const hoy = new Date();
-  const mananaISO = fmtISO(addDays(hoy, 1));
+function moverAHoy(id) {
+  const hoyISO = fmtISO(new Date());
   state.eventos = state.eventos.map(function (e) {
     if (e.id !== id) return e;
-    const update = { fecha: mananaISO };
+    const update = { fecha: hoyISO };
     if (e.fechaFin && e.fechaFin > e.fecha) {
       const diasRango = Math.round((new Date(e.fechaFin + "T00:00:00") - new Date(e.fecha + "T00:00:00")) / 86400000);
-      update.fechaFin = fmtISO(addDays(new Date(mananaISO + "T00:00:00"), diasRango));
+      update.fechaFin = fmtISO(addDays(new Date(hoyISO + "T00:00:00"), diasRango));
     } else {
-      update.fechaFin = mananaISO;
+      update.fechaFin = hoyISO;
     }
     return Object.assign({}, e, update);
   });
@@ -1051,18 +1073,17 @@ function moverASiguienteDia(id) {
 }
 function moverTodosVencidos() {
   const hoyISO = fmtISO(new Date());
-  const mananaISO = fmtISO(addDays(new Date(), 1));
   state.eventos = state.eventos.map(function (e) {
     if (todoElRangoCompletado(e) || e.fecha >= hoyISO) return e;
     // No mover eventos multi-día que ya tienen al menos un día marcado como
     // completado: mover todo el rango perdería ese progreso parcial registrado.
     if (esMultiDiaEvento(e) && Array.isArray(e.completadoFechas) && e.completadoFechas.length > 0) return e;
-    const update = { fecha: mananaISO };
+    const update = { fecha: hoyISO };
     if (e.fechaFin && e.fechaFin > e.fecha) {
       const diasRango = Math.round((new Date(e.fechaFin + "T00:00:00") - new Date(e.fecha + "T00:00:00")) / 86400000);
-      update.fechaFin = fmtISO(addDays(new Date(mananaISO + "T00:00:00"), diasRango));
+      update.fechaFin = fmtISO(addDays(new Date(hoyISO + "T00:00:00"), diasRango));
     } else {
-      update.fechaFin = mananaISO;
+      update.fechaFin = hoyISO;
     }
     return Object.assign({}, e, update);
   });
@@ -1584,7 +1605,10 @@ function renderSeccionDelegacion() {
     '<div style="padding:18px">' +
       '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;flex-wrap:wrap;gap:10px">' +
         '<div class="mono" style="font-size:13px;color:#D99A3D;letter-spacing:1px;font-weight:600">TABLERO DE DELEGACIÓN</div>' +
-        '<button class="btn-primary cond" id="btn-nueva-delegacion">' + icon("plus", 15) + ' Delegar tarea</button>' +
+        '<div style="display:flex;gap:8px">' +
+          '<button class="pillbtn cond" id="btn-abrir-estadisticas-deleg" style="display:flex;align-items:center;gap:6px">' + icon("barChart", 15) + ' Estadísticas</button>' +
+          '<button class="btn-primary cond" id="btn-nueva-delegacion">' + icon("plus", 15) + ' Delegar tarea</button>' +
+        '</div>' +
       '</div>' +
       '<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px;align-items:center">' +
         filtroBtns +
@@ -1600,10 +1624,102 @@ function renderSeccionDelegacion() {
       '<div style="display:flex;flex-direction:column;gap:8px;margin-top:14px">' + tareasHtml + '</div>' +
     '</div>' +
     (state.modalDelegacion === "tarea" ? renderModalDelegacion() : "") +
+    (state.modalDelegacion === "estadisticas" ? renderModalEstadisticasDelegacion() : "") +
     (state.modalDelegacion === "confirmarEliminarTarea" ? renderModalConfirmarEliminarGenerico(
         "¿Eliminar esta tarea delegada?", "Esto eliminará el evento correspondiente también del calendario. Esta acción no se puede deshacer.",
         "btn-cancelar-eliminar-deleg", "btn-confirmar-eliminar-deleg"
       ) : "")
+  );
+}
+
+function renderModalEstadisticasDelegacion() {
+  const todas = tareasDelegadas();
+
+  // Cantidad de tareas por responsable, ordenado de mayor a menor.
+  const porResponsable = {};
+  todas.forEach(function (ev) {
+    const r = ev.responsable || "Sin asignar";
+    if (!porResponsable[r]) porResponsable[r] = { total: 0, listas: 0 };
+    porResponsable[r].total++;
+    if (todoElRangoCompletado(ev)) porResponsable[r].listas++;
+  });
+  const responsablesOrdenados = Object.keys(porResponsable).sort(function (a, b) {
+    return porResponsable[b].total - porResponsable[a].total;
+  });
+  const maxPorResponsable = responsablesOrdenados.length ? porResponsable[responsablesOrdenados[0]].total : 1;
+
+  const filasResponsable = responsablesOrdenados.map(function (r) {
+    const d = porResponsable[r];
+    const pct = Math.round((d.total / maxPorResponsable) * 100);
+    return (
+      '<div style="margin-bottom:10px">' +
+        '<div class="cond" style="display:flex;justify-content:space-between;font-size:12.5px;color:#C9D2DA;margin-bottom:4px">' +
+          '<span>' + escapeHTML(r) + '</span>' +
+          '<span class="mono" style="color:#8AA0B5">' + d.listas + '/' + d.total + ' listas</span>' +
+        '</div>' +
+        '<div style="height:8px;background:#0B1B2B;border-radius:4px;overflow:hidden">' +
+          '<div style="height:100%;width:' + pct + '%;background:#D99A3D"></div>' +
+        '</div>' +
+      '</div>'
+    );
+  }).join("");
+
+  // Cantidad de tareas por mes, últimos 6 meses (incluyendo el actual).
+  const hoy = new Date();
+  const meses = [];
+  for (let i = 5; i >= 0; i--) {
+    const d = new Date(hoy.getFullYear(), hoy.getMonth() - i, 1);
+    meses.push({ anio: d.getFullYear(), mes: d.getMonth(), label: MESES_ABR[d.getMonth()] + " " + String(d.getFullYear()).slice(2) });
+  }
+  const conteoPorMes = meses.map(function (m) {
+    const total = todas.filter(function (ev) {
+      const fechaRef = ev.fechaFin || ev.fecha;
+      const d = new Date(fechaRef + "T00:00:00");
+      return d.getFullYear() === m.anio && d.getMonth() === m.mes;
+    }).length;
+    return { label: m.label, total: total };
+  });
+  const maxPorMes = Math.max.apply(null, conteoPorMes.map(function (c) { return c.total; }).concat([1]));
+
+  const barrasMes = conteoPorMes.map(function (c) {
+    const alturaPct = Math.round((c.total / maxPorMes) * 100);
+    return (
+      '<div style="display:flex;flex-direction:column;align-items:center;gap:4px;flex:1">' +
+        '<div class="mono" style="font-size:10.5px;color:#C9D2DA">' + c.total + '</div>' +
+        '<div style="width:100%;height:80px;display:flex;align-items:flex-end">' +
+          '<div style="width:100%;height:' + Math.max(alturaPct, 3) + '%;background:#6FA8D9;border-radius:3px 3px 0 0"></div>' +
+        '</div>' +
+        '<div class="mono" style="font-size:9.5px;color:#5C7184">' + c.label + '</div>' +
+      '</div>'
+    );
+  }).join("");
+
+  // Resumen general por estado.
+  const resumenEstados = ESTADOS_DELEGACION.map(function (es) {
+    const cantidad = todas.filter(function (ev) { return estadoDelegacionDeEvento(ev) === es.id; }).length;
+    return '<div style="text-align:center;flex:1"><div class="mono" style="font-size:20px;font-weight:700;color:' + es.color + '">' + cantidad + '</div><div class="cond" style="font-size:10.5px;color:#8AA0B5">' + es.label + '</div></div>';
+  }).join("");
+
+  return (
+    '<div class="overlay" id="overlay-estadisticas-deleg">' +
+      '<div class="modal wide">' +
+        '<div class="modal-head">' +
+          '<div class="modal-title mono">ESTADÍSTICAS DE DELEGACIÓN</div>' +
+          '<button class="iconbtn" id="btn-cerrar-estadisticas-deleg">' + icon("x", 16) + '</button>' +
+        '</div>' +
+
+        '<div class="mono" style="font-size:10.5px;color:#8AA0B5;letter-spacing:0.5px;margin-bottom:10px">RESUMEN POR ESTADO</div>' +
+        '<div style="display:flex;gap:8px;margin-bottom:20px;padding:14px;background:#0B1B2B;border:1px solid #1E3247;border-radius:8px">' + resumenEstados + '</div>' +
+
+        '<div class="mono" style="font-size:10.5px;color:#8AA0B5;letter-spacing:0.5px;margin-bottom:10px">TAREAS POR RESPONSABLE</div>' +
+        '<div style="margin-bottom:20px;padding:14px;background:#0B1B2B;border:1px solid #1E3247;border-radius:8px">' +
+          (filasResponsable || '<div class="cond" style="color:#5C7184;font-style:italic;font-size:12.5px">Sin tareas delegadas todavía.</div>') +
+        '</div>' +
+
+        '<div class="mono" style="font-size:10.5px;color:#8AA0B5;letter-spacing:0.5px;margin-bottom:10px">TAREAS POR MES (últimos 6 meses)</div>' +
+        '<div style="display:flex;gap:6px;padding:14px;background:#0B1B2B;border:1px solid #1E3247;border-radius:8px">' + barrasMes + '</div>' +
+      '</div>' +
+    '</div>'
   );
 }
 
@@ -1697,6 +1813,13 @@ function bindEventsDelegacion() {
 
   const btnNuevaDelegacion = document.getElementById("btn-nueva-delegacion");
   if (btnNuevaDelegacion) btnNuevaDelegacion.onclick = function () { state.delegacionEditando = null; state.modalDelegacion = "tarea"; render(); };
+
+  const btnAbrirEstadisticasDeleg = document.getElementById("btn-abrir-estadisticas-deleg");
+  if (btnAbrirEstadisticasDeleg) btnAbrirEstadisticasDeleg.onclick = function () { state.modalDelegacion = "estadisticas"; render(); };
+  const btnCerrarEstadisticasDeleg = document.getElementById("btn-cerrar-estadisticas-deleg");
+  if (btnCerrarEstadisticasDeleg) btnCerrarEstadisticasDeleg.onclick = function () { state.modalDelegacion = null; render(); };
+  const overlayEstadisticasDeleg = document.getElementById("overlay-estadisticas-deleg");
+  if (overlayEstadisticasDeleg) overlayEstadisticasDeleg.onclick = function (e) { if (e.target === overlayEstadisticasDeleg) { state.modalDelegacion = null; render(); } };
 
   document.querySelectorAll("[data-action='editar-delegacion']").forEach(function (el) {
     el.onclick = function () {
@@ -1894,6 +2017,10 @@ function renderSeccionMolo() {
       }
     });
 
+    const ALTO_NIVEL_GANTT = 38; // 34px de barra + 4px de separación entre niveles
+    const nivelesGantt = multiDia.length;
+    const paddingTopCeldas = nivelesGantt ? (nivelesGantt * ALTO_NIVEL_GANTT + 6) : 5;
+
     // Construir las celdas base (solo actividades de un día; las multi-día se
     // dibujan encima como barras absolutas, no dentro de la celda).
     const celdas = dias.map(function (d) {
@@ -1910,13 +2037,14 @@ function renderSeccionMolo() {
         '</div>';
       }).join("");
       const masHtml = acts.length > 2 ? '<div class="mono" style="font-size:9px;color:#5C7184;text-align:center">+' + (acts.length - 2) + ' más</div>' : "";
-      return '<div class="molo-celda' + (esHoy ? " today" : "") + '" data-action="abrir-celda-molo" data-buque="' + buque.id + '" data-fecha="' + iso + '" style="padding-top:' + (multiDia.length ? "40px" : "5px") + '">' +
+      return '<div class="molo-celda' + (esHoy ? " today" : "") + '" data-action="abrir-celda-molo" data-buque="' + buque.id + '" data-fecha="' + iso + '" style="padding-top:' + paddingTopCeldas + 'px">' +
         bloquesHtml + masHtml +
       '</div>';
     }).join("");
 
-    // Barras Gantt continuas para actividades multi-día, posicionadas en una
-    // franja superior de la fila (por eso las celdas de arriba tienen padding-top extra).
+    // Barras Gantt continuas para actividades multi-día, cada una en su propio
+    // nivel vertical dentro de la franja superior de la fila, para que dos o más
+    // actividades del mismo buque en fechas que se solapan no queden superpuestas.
     const gantt = multiDia.map(function (a, idxGantt) {
       const tipo = tipoActividadMoloById(a.tipo) || { color: "#8AA0B5", label: "?" };
       const colorTexto = colorTextoLegible(tipo.color);
@@ -1930,7 +2058,7 @@ function renderSeccionMolo() {
       const left = colInicio * ANCHO_COL;
       const width = numCols * ANCHO_COL - 8; // pequeño margen visual
       const horaFin = a.hora ? calcularHoraTermino(a.hora, a.duracion || 60) : "";
-      return '<div class="molo-barra-gantt" data-action="editar-actividad-molo-directo" data-id="' + a.id + '" style="left:' + (left + 4) + 'px;width:' + width + 'px;top:' + (idxGantt * 0) + 'px;background:' + tipo.color + ';color:' + colorTexto + '" title="' + escapeHTML(tipo.label) + '">' +
+      return '<div class="molo-barra-gantt" data-action="editar-actividad-molo-directo" data-id="' + a.id + '" style="left:' + (left + 4) + 'px;width:' + width + 'px;top:' + (idxGantt * ALTO_NIVEL_GANTT) + 'px;background:' + tipo.color + ';color:' + colorTexto + '" title="' + escapeHTML(tipo.label) + '">' +
         (a.hora ? '<span class="mono molo-barra-hora-ini" style="color:' + colorTexto + '">' + a.hora + '</span>' : "") +
         (horaFin ? '<span class="mono molo-barra-hora-fin" style="color:' + colorTexto + '">' + horaFin + '</span>' : "") +
         '<span class="molo-barra-gantt-label" style="color:' + colorTexto + '">' + escapeHTML(tipo.label) + '</span>' +
@@ -2462,8 +2590,8 @@ function bindEventsMolo() {
 function renderTopbar() {
   const hoy = new Date();
   const hoyISO = fmtISO(hoy);
-  const pendientesHoy = (eventosPorFecha()[hoyISO] || []).filter(function (e) { return !e.completado; });
-  const vencidos = state.eventos.filter(function (e) { return !e.completado && e.fecha < hoyISO; });
+  const pendientesHoy = (eventosPorFecha()[hoyISO] || []).filter(function (e) { return !estaCompletadoEnFecha(e, hoyISO); });
+  const vencidos = state.eventos.filter(function (e) { return tieneAlgunDiaVencidoSinCompletar(e, hoyISO); });
   const completadosCount = eventosCompletados().length;
   const esCalendario = state.seccion === "calendario";
 
@@ -2526,7 +2654,7 @@ function renderPantallaBloqueo() {
   }).join("");
 
   return (
-    '<div style="min-height:100vh;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:30px 24px;background:#0B1B2B">' +
+    '<div style="min-height:100vh;min-height:100dvh;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:30px 24px;background:#0B1B2B">' +
       '<div style="margin-bottom:36px;text-align:center">' +
         '<div class="topbar-titulo cond" style="margin-bottom:6px">PLANIFICADOR DE OPERACIONES</div>' +
         '<div class="cond" style="font-size:16px;color:#E4EAEF;font-weight:600;margin-top:18px">' + titulo + '</div>' +
@@ -2546,7 +2674,7 @@ function renderPantallaElegirLongitudPin() {
     return '<button class="pin-longitud-btn cond" data-longitud="' + n + '" style="padding:16px;border-radius:10px;border:1px solid #2A3F54;background:#0E2235;color:#E4EAEF;font-size:15px;font-weight:600;cursor:pointer">' + n + ' dígitos</button>';
   }).join("");
   return (
-    '<div style="min-height:100vh;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:30px 24px;background:#0B1B2B">' +
+    '<div style="min-height:100vh;min-height:100dvh;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:30px 24px;background:#0B1B2B">' +
       '<div style="margin-bottom:30px;text-align:center">' +
         '<div class="topbar-titulo cond" style="margin-bottom:6px">PLANIFICADOR DE OPERACIONES</div>' +
         '<div class="cond" style="font-size:16px;color:#E4EAEF;font-weight:600;margin-top:18px">¿Cuántos dígitos quieres en tu PIN?</div>' +
@@ -2667,8 +2795,8 @@ function eliminarPin() {
 
 function renderDrawerSecciones() {
   const hoyISO = fmtISO(new Date());
-  const pendientesHoy = (eventosPorFecha()[hoyISO] || []).filter(function (e) { return !e.completado; });
-  const vencidos = state.eventos.filter(function (e) { return !e.completado && e.fecha < hoyISO; });
+  const pendientesHoy = (eventosPorFecha()[hoyISO] || []).filter(function (e) { return !estaCompletadoEnFecha(e, hoyISO); });
+  const vencidos = state.eventos.filter(function (e) { return tieneAlgunDiaVencidoSinCompletar(e, hoyISO); });
 
   const items = [
     { id: "calendario", label: "Calendario", icono: "calendar" },
@@ -2698,7 +2826,7 @@ function renderDrawerSecciones() {
         (vencidos.length > 0 ?
           '<div style="padding:0 16px 12px;border-bottom:1px solid #1E3247">' +
             '<button class="cond" id="btn-mover-todos" style="width:100%;display:flex;align-items:center;justify-content:center;gap:6px;padding:9px;border-radius:7px;border:1px solid #E0524A;background:rgba(224,82,74,0.12);color:#E0524A;font-weight:600;font-size:12.5px;cursor:pointer">' +
-              icon("skip", 14) + ' Mover vencidas a mañana</button>' +
+              icon("skip", 14) + ' Mover vencidas a hoy</button>' +
           '</div>'
           : '') +
         '<div style="display:flex;flex-direction:column;gap:4px;padding:8px">' + itemsHtml + '</div>' +
@@ -2718,6 +2846,7 @@ function renderDrawerSecciones() {
             '📶 Estado sin internet / Respaldo de datos' +
           '</button>' +
           '<div class="mono" style="text-align:center;font-size:11px;color:#8AA0B5;font-weight:600;margin-top:10px;letter-spacing:0.5px">VERSIÓN ' + APP_VERSION + '</div>' +
+          '<div class="cond" style="text-align:center;font-size:10px;color:#5C7184;margin-top:4px">© Carlos Chandía Schuffeneger</div>' +
         '</div>' +
       '</div>' +
     '</div>'
@@ -2927,7 +3056,7 @@ function renderFilaEvento(ev, vencido, fechaCelda) {
           (prio ? '<span class="meta-prio cond" style="color:' + prio.color + '">' + prio.label + '</span>' : "") +
         '</div>' +
       '</div>' +
-      (vencido ? '<button class="btn-manana cond" data-action="manana" data-id="' + ev.id + '">' + icon("skip", 12) + ' Mañana</button>' : "") +
+      (vencido ? '<button class="btn-manana cond" data-action="hoy-boton" data-id="' + ev.id + '">' + icon("skip", 12) + ' Hoy</button>' : "") +
       '<div class="acciones">' +
         '<button class="iconbtn-sm" data-action="export" data-id="' + ev.id + '" title="Alarma (.ics)">' + icon("alert", 12) + '</button>' +
         '<button class="iconbtn-sm" data-action="eliminar" data-id="' + ev.id + '" title="Eliminar">' + icon("trash", 12) + '</button>' +
@@ -2980,7 +3109,7 @@ function renderVistaAgenda() {
           (nombreFeriado ? '<span style="font-size:9.5px;color:#C97FE0;border:1px solid #C97FE0;border-radius:4px;padding:1px 5px" title="' + escapeHTML(nombreFeriado) + '">FERIADO</span>' : (esFinde && !esHoy ? '<span style="font-size:9.5px;color:#5C7184">FIN DE SEMANA</span>' : "")) +
         '</div>' +
         '<div class="daycard' + (esHoy ? " today" : (!esHoy && (nombreFeriado || esFinde) ? " dia-especial" : "")) + '" style="border-top:3px solid ' + (esHoy ? "#D99A3D" : "#1E3247") + '">' +
-          evs.map(function (ev) { return renderFilaEvento(ev, !estaCompletadoEnFecha(ev, iso) && ev.fecha < hoyISO, iso); }).join("") +
+          evs.map(function (ev) { return renderFilaEvento(ev, !estaCompletadoEnFecha(ev, iso) && iso < hoyISO, iso); }).join("") +
         '</div>' +
       '</div>';
   });
@@ -3030,7 +3159,7 @@ function renderVistaSemana() {
           ? ""
           : (evs.length === 0
               ? '<div class="empty-day cond">Sin novedades</div>'
-              : evs.map(function (ev) { return renderFilaEvento(ev, !estaCompletadoEnFecha(ev, iso) && ev.fecha < hoyISO, iso); }).join("")
+              : evs.map(function (ev) { return renderFilaEvento(ev, !estaCompletadoEnFecha(ev, iso) && iso < hoyISO, iso); }).join("")
             )
         ) +
       '</div>';
@@ -3307,7 +3436,7 @@ function renderModalDetalleDia() {
 
   const evsHtml = evs.length === 0
     ? '<div class="empty-state cond">Sin novedades este día.</div>'
-    : evs.map(function (ev) { return renderFilaEvento(ev, !estaCompletadoEnFecha(ev, fecha) && ev.fecha < hoyISO, fecha); }).join("");
+    : evs.map(function (ev) { return renderFilaEvento(ev, !estaCompletadoEnFecha(ev, fecha) && fecha < hoyISO, fecha); }).join("");
 
   return (
     '<div class="overlay" id="overlay-detalle-dia">' +
@@ -3904,7 +4033,7 @@ function bindEvents() {
     const fecha = el.getAttribute("data-fecha");
 
     if (action === "toggle") el.onclick = function (e) { e.stopPropagation(); iniciarToggle(id, el.getAttribute("data-fecha-celda")); };
-    else if (action === "manana") el.onclick = function (e) { e.stopPropagation(); moverASiguienteDia(id); };
+    else if (action === "hoy-boton") el.onclick = function (e) { e.stopPropagation(); moverAHoy(id); };
     else if (action === "export") el.onclick = function (e) {
       e.stopPropagation();
       const ev = state.eventos.find(function (e) { return e.id === id; });
