@@ -14,7 +14,12 @@
 
 <style>
   @font-face { font-family: 'system-mono'; src: local('Menlo'); }
-  html, body { margin: 0; padding: 0; background: #0B1B2B; }
+  html, body {
+    margin: 0; padding: 0; background: #0B1B2B;
+    height: 100%; overflow: hidden; position: fixed; width: 100%;
+    -webkit-overflow-scrolling: touch;
+  }
+  #app { min-height: 100vh; min-height: 100dvh; background: #0B1B2B; height: 100%; overflow-y: auto; overflow-x: hidden; -webkit-overflow-scrolling: touch; }
   * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
   body { font-family: -apple-system, system-ui, sans-serif; color: #C9D2DA; }
   .mono { font-family: ui-monospace, "SF Mono", Menlo, monospace; }
@@ -30,8 +35,6 @@
   @keyframes pulse-dot { 0%,100% { opacity: 1; } 50% { opacity: 0.35; } }
   input[type="date"], input[type="time"] { color-scheme: dark; }
   button { -webkit-appearance: none; appearance: none; }
-
-  #app { min-height: 100vh; min-height: 100dvh; background: #0B1B2B; }
 
   .topbar {
     border-bottom: 1px solid #1E3247;
@@ -621,7 +624,7 @@ const state = {
 // versión del archivo, para que el usuario pueda confirmar en el menú lateral que
 // está usando la última versión trabajada (útil si tiene el archivo en más de
 // un dispositivo y quiere verificar cuál subió más recientemente a cada uno).
-const APP_VERSION = "2026.06.30-8";
+const APP_VERSION = "2026.06.30-9";
 
 const CAMPOS_PERSISTENTES = [
   { campo: "eventos", clave: STORAGE_KEY },
